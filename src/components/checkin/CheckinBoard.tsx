@@ -35,6 +35,7 @@ export default function CheckinBoard({
   const [search, setSearch] = useState("");
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [confirmCash, setConfirmCash] = useState<TicketRecord | null>(null);
 
   async function refetch() {
     try {
@@ -110,22 +111,43 @@ export default function CheckinBoard({
     return updates;
   }
 
-  // Single-ticket orders keep the simple whole-row tap-to-toggle.
+  // Single-ticket orders keep the simple whole-row tap-to-toggle. Checking
+  // in (not un-checking) a cash order that still owes something routes
+  // through the collect-cash confirmation first, so staff always see the
+  // amount before it counts as checked in.
   function handleTap(ticket: TicketRecord) {
-    const nextCount = ticket.checkedInCount > 0 ? 0 : 1;
-    sendMark(ticket.id, checkinUpdates(ticket, nextCount));
+    if (ticket.checkedInCount > 0) {
+      sendMark(ticket.id, checkinUpdates(ticket, 0));
+      return;
+    }
+    if (ticket.paymentMethod === "Cash") {
+      setConfirmCash(ticket);
+      return;
+    }
+    sendMark(ticket.id, checkinUpdates(ticket, 1));
   }
 
   // Multi-ticket orders use +/- instead of a whole-row tap, since check-in
-  // isn't all-or-nothing when a party can arrive (and pay) in stages.
+  // isn't all-or-nothing when a party can arrive (and pay) in stages. Every
+  // increment on a cash order still owing money confirms collection first.
   function incrementCheckedIn(ticket: TicketRecord) {
     if (ticket.checkedInCount >= ticket.quantity) return;
+    if (ticket.paymentMethod === "Cash") {
+      setConfirmCash(ticket);
+      return;
+    }
     sendMark(ticket.id, checkinUpdates(ticket, ticket.checkedInCount + 1));
   }
 
   function decrementCheckedIn(ticket: TicketRecord) {
     if (ticket.checkedInCount <= 0) return;
     sendMark(ticket.id, checkinUpdates(ticket, ticket.checkedInCount - 1));
+  }
+
+  function confirmCollectCash() {
+    if (!confirmCash) return;
+    sendMark(confirmCash.id, checkinUpdates(confirmCash, confirmCash.checkedInCount + 1));
+    setConfirmCash(null);
   }
 
   const filtered = useMemo(() => {
@@ -320,6 +342,37 @@ export default function CheckinBoard({
           );
         })}
       </div>
+
+      {confirmCash && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-lg">
+            <h2 className="mb-2 font-heading text-lg font-semibold text-sasa-red-900">
+              Collect cash
+            </h2>
+            <p className="mb-6 text-sm text-sasa-neutral-500">
+              {confirmCash.firstName} {confirmCash.lastName} owes{" "}
+              <span className="font-semibold text-sasa-red-900">
+                {formatPrice(amountOwedCents(confirmCash))}
+              </span>
+              . Confirm you&apos;ve collected payment before checking them in.
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => setConfirmCash(null)}
+                className="rounded border-2 border-sasa-gold-400 px-4 py-2 text-sm font-semibold text-sasa-gold-400 hover:bg-sasa-gold-400/10"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmCollectCash}
+                className="rounded bg-sasa-red-900 px-4 py-2 text-sm font-semibold text-white hover:bg-sasa-red-700"
+              >
+                Collected — Check In
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

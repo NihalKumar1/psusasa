@@ -221,12 +221,54 @@ export default function TicketPurchaseForm({
 
   return (
     <div className="rounded-xl border border-gray-200 bg-white p-8 shadow-sm">
+      <div className="mb-8 flex items-center justify-center gap-3">
+        <div className="flex items-center gap-2">
+          <div
+            className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-semibold transition-colors ${
+              step >= 1
+                ? "bg-sasa-red-900 text-white"
+                : "border-2 border-gray-300 text-gray-400"
+            }`}
+          >
+            {step > 1 ? (
+              <svg className="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M20.293 5.293a1 1 0 011.414 1.414l-10 10a1 1 0 01-1.414 0l-6-6a1 1 0 011.414-1.414L10 14.586l9.293-9.293z" />
+              </svg>
+            ) : (
+              "1"
+            )}
+          </div>
+          <span className="text-xs text-sasa-neutral-500">Details</span>
+        </div>
+        <div className={`h-0.5 w-8 ${step > 1 ? "bg-sasa-gold-600" : "bg-gray-200"}`} />
+        <div className="flex items-center gap-2">
+          <div
+            className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-semibold transition-colors ${
+              step >= 2
+                ? "bg-sasa-red-900 text-white"
+                : "border-2 border-gray-300 text-gray-400"
+            }`}
+          >
+            2
+          </div>
+          <span className="text-xs text-sasa-neutral-500">Payment</span>
+        </div>
+      </div>
+
       {step === 1 && (
         <div className="space-y-6">
           <div>
-            <h2 className="mb-4 font-heading text-base font-semibold text-sasa-red-900">
-              Your Ticket
-            </h2>
+            <div className="mb-4 flex items-center gap-2">
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-sasa-red-900/10 text-sasa-red-900">
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                  <circle cx="12" cy="8" r="3" />
+                  <path d="M5 19c0-3.87 3.13-7 7-7s7 3.13 7 7" strokeLinecap="round" />
+                </svg>
+              </span>
+              <h2 className="font-heading text-base font-semibold text-sasa-red-900">
+                Your Ticket
+              </h2>
+            </div>
             <div className="space-y-4">
               <div className="grid gap-4 sm:grid-cols-2">
                 <div>
@@ -307,37 +349,57 @@ export default function TicketPurchaseForm({
                   Ticket Type <span className="text-red-500">*</span>
                 </label>
                 <div className="space-y-2">
-                  {purchasable.map((t) => (
-                    <label
-                      key={t._key}
-                      className={`flex items-start gap-3 rounded border px-3 py-2 cursor-pointer transition-colors ${
-                        ticketTypeKey === t._key
-                          ? "border-sasa-red-900 bg-sasa-red-900/5"
-                          : "border-gray-300 hover:border-sasa-red-900/40"
-                      }`}
-                    >
-                      <input
-                        type="radio"
-                        name="ticketType"
-                        value={t._key}
-                        checked={ticketTypeKey === t._key}
-                        onChange={() => setTicketTypeKey(t._key)}
-                        className="mt-1 accent-sasa-red-900"
-                      />
-                      <span className="flex-1 text-sm">
-                        <span className="block font-medium">{t.name}</span>
-                        <span className="block text-sasa-neutral-500">
-                          Members {formatPrice(t.memberPriceCents)} · Non-members{" "}
-                          {formatPrice(t.nonMemberPriceCents)}
+                  {purchasable.map((t) => {
+                    const selected = ticketTypeKey === t._key;
+                    return (
+                      <label
+                        key={t._key}
+                        className={`flex cursor-pointer items-center gap-3 rounded-lg border-2 p-3 transition-all ${
+                          selected
+                            ? "border-sasa-red-900 bg-sasa-red-900/5 shadow-sm"
+                            : "border-gray-200 hover:border-sasa-red-900/30 hover:bg-gray-50"
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="ticketType"
+                          value={t._key}
+                          checked={selected}
+                          onChange={() => setTicketTypeKey(t._key)}
+                          className="sr-only"
+                        />
+                        <span
+                          className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 transition-colors ${
+                            selected ? "border-sasa-red-900 bg-sasa-red-900" : "border-gray-300"
+                          }`}
+                        >
+                          {selected && <span className="h-2 w-2 rounded-full bg-white" />}
                         </span>
-                        {typeof t.remaining === "number" && t.remaining <= 10 && (
-                          <span className="block text-xs text-amber-600">
-                            Only {t.remaining} left
+                        <span className="flex-1">
+                          <span className="flex items-center justify-between gap-2">
+                            <span className="font-heading text-sm font-semibold text-sasa-red-900">
+                              {t.name}
+                            </span>
+                            {typeof t.remaining === "number" && t.remaining <= 10 && (
+                              <span className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
+                                {t.remaining} left
+                              </span>
+                            )}
                           </span>
-                        )}
-                      </span>
-                    </label>
-                  ))}
+                          <span className="mt-0.5 block text-xs text-sasa-neutral-500">
+                            Members{" "}
+                            <span className="font-semibold text-sasa-forest">
+                              {formatPrice(t.memberPriceCents)}
+                            </span>{" "}
+                            · Non-members{" "}
+                            <span className="font-semibold text-sasa-neutral-500">
+                              {formatPrice(t.nonMemberPriceCents)}
+                            </span>
+                          </span>
+                        </span>
+                      </label>
+                    );
+                  })}
                 </div>
                 {errors.ticketTypeKey && (
                   <p className="mt-1 text-xs text-red-500">{errors.ticketTypeKey}</p>
@@ -347,9 +409,16 @@ export default function TicketPurchaseForm({
           </div>
 
           <div className="border-t border-gray-100 pt-6">
-            <h2 className="mb-1 font-heading text-base font-semibold text-sasa-red-900">
-              Additional Tickets
-            </h2>
+            <div className="mb-1 flex items-center gap-2">
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-sasa-red-900/10 text-sasa-red-900">
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path d="M12 5v14M5 12h14" strokeLinecap="round" />
+                </svg>
+              </span>
+              <h2 className="font-heading text-base font-semibold text-sasa-red-900">
+                Additional Tickets
+              </h2>
+            </div>
             <p className="mb-3 text-xs text-sasa-neutral-500">
               Buying for friends too? Additional tickets are charged the
               non-member rate
@@ -357,36 +426,51 @@ export default function TicketPurchaseForm({
                 ` (${formatPrice(selectedType.nonMemberPriceCents)} each)`}{" "}
               — no info needed from them, they&apos;re on the same order as you.
             </p>
-            <input
-              type="number"
-              min={0}
-              max={maxAdditionalQuantity}
-              value={additionalQuantity}
-              onChange={(e) =>
-                setAdditionalQuantity(
-                  Math.max(
-                    0,
-                    Math.min(maxAdditionalQuantity, Number(e.target.value) || 0)
-                  )
-                )
-              }
-              className="w-24 rounded border border-gray-300 px-3 py-2 text-sm focus:border-sasa-red-900 focus:outline-none focus:ring-1 focus:ring-sasa-red-900"
-            />
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setAdditionalQuantity((q) => Math.max(0, q - 1))}
+                disabled={additionalQuantity <= 0}
+                aria-label="Decrease additional tickets"
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-gray-300 text-lg font-semibold text-sasa-red-900 transition-colors hover:bg-gray-50 disabled:opacity-40"
+              >
+                −
+              </button>
+              <span className="w-8 text-center text-lg font-semibold text-sasa-red-900">
+                {additionalQuantity}
+              </span>
+              <button
+                type="button"
+                onClick={() =>
+                  setAdditionalQuantity((q) => Math.min(maxAdditionalQuantity, q + 1))
+                }
+                disabled={additionalQuantity >= maxAdditionalQuantity}
+                aria-label="Increase additional tickets"
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-gray-300 text-lg font-semibold text-sasa-red-900 transition-colors hover:bg-gray-50 disabled:opacity-40"
+              >
+                +
+              </button>
+            </div>
             {errors.additionalQuantity && (
               <p className="mt-1 text-xs text-red-500">{errors.additionalQuantity}</p>
             )}
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-sasa-red-900 mb-2">
-              Payment Method
-            </label>
+            <div className="mb-2 flex items-center gap-2">
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-sasa-red-900/10 text-sm font-bold text-sasa-red-900">
+                $
+              </span>
+              <h2 className="font-heading text-base font-semibold text-sasa-red-900">
+                Payment Method
+              </h2>
+            </div>
             <div className="space-y-2">
               <label
-                className={`flex items-center gap-3 rounded border px-3 py-2 cursor-pointer transition-colors ${
+                className={`flex cursor-pointer items-center gap-3 rounded-lg border-2 p-3 transition-all ${
                   paymentMethod === "card"
-                    ? "border-sasa-red-900 bg-sasa-red-900/5"
-                    : "border-gray-300 hover:border-sasa-red-900/40"
+                    ? "border-sasa-red-900 bg-sasa-red-900/5 shadow-sm"
+                    : "border-gray-200 hover:border-sasa-red-900/30 hover:bg-gray-50"
                 }`}
               >
                 <input
@@ -394,15 +478,40 @@ export default function TicketPurchaseForm({
                   name="paymentMethod"
                   checked={paymentMethod === "card"}
                   onChange={() => setPaymentMethod("card")}
-                  className="accent-sasa-red-900"
+                  className="sr-only"
                 />
-                <span className="text-sm">Pay now (card)</span>
+                <span
+                  className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 transition-colors ${
+                    paymentMethod === "card"
+                      ? "border-sasa-red-900 bg-sasa-red-900"
+                      : "border-gray-300"
+                  }`}
+                >
+                  {paymentMethod === "card" && (
+                    <span className="h-2 w-2 rounded-full bg-white" />
+                  )}
+                </span>
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-sasa-red-900/10 text-sasa-red-900">
+                  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                    <rect x="2.25" y="5.25" width="19.5" height="13.5" rx="2" />
+                    <path d="M2.25 9.75h19.5" strokeLinecap="round" />
+                    <path d="M6 15h4" strokeLinecap="round" />
+                  </svg>
+                </span>
+                <span>
+                  <span className="block text-sm font-semibold text-sasa-red-900">
+                    Pay now (card)
+                  </span>
+                  <span className="block text-xs text-sasa-neutral-500">
+                    Confirmed instantly
+                  </span>
+                </span>
               </label>
               <label
-                className={`flex items-center gap-3 rounded border px-3 py-2 cursor-pointer transition-colors ${
+                className={`flex cursor-pointer items-center gap-3 rounded-lg border-2 p-3 transition-all ${
                   paymentMethod === "cash"
-                    ? "border-sasa-red-900 bg-sasa-red-900/5"
-                    : "border-gray-300 hover:border-sasa-red-900/40"
+                    ? "border-sasa-red-900 bg-sasa-red-900/5 shadow-sm"
+                    : "border-gray-200 hover:border-sasa-red-900/30 hover:bg-gray-50"
                 }`}
               >
                 <input
@@ -410,9 +519,33 @@ export default function TicketPurchaseForm({
                   name="paymentMethod"
                   checked={paymentMethod === "cash"}
                   onChange={() => setPaymentMethod("cash")}
-                  className="accent-sasa-red-900"
+                  className="sr-only"
                 />
-                <span className="text-sm">Pay cash at the door</span>
+                <span
+                  className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 transition-colors ${
+                    paymentMethod === "cash"
+                      ? "border-sasa-red-900 bg-sasa-red-900"
+                      : "border-gray-300"
+                  }`}
+                >
+                  {paymentMethod === "cash" && (
+                    <span className="h-2 w-2 rounded-full bg-white" />
+                  )}
+                </span>
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-sasa-red-900/10 text-sasa-red-900">
+                  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                    <rect x="2.25" y="6" width="19.5" height="12" rx="2" />
+                    <circle cx="12" cy="12" r="2.5" />
+                  </svg>
+                </span>
+                <span>
+                  <span className="block text-sm font-semibold text-sasa-red-900">
+                    Pay cash at the door
+                  </span>
+                  <span className="block text-xs text-sasa-neutral-500">
+                    Pay when you arrive
+                  </span>
+                </span>
               </label>
             </div>
             {paymentMethod === "cash" && (
@@ -438,6 +571,18 @@ export default function TicketPurchaseForm({
 
           {selectedType && (
             <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
+              <div className="mb-3 flex items-center gap-2">
+                <svg className="h-4 w-4 text-sasa-gold-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M9 12h6m-6 3h3m-8.25 4.5h13.5c.621 0 1.125-.504 1.125-1.125V7.5c0-.621-.504-1.125-1.125-1.125H5.25C4.629 6.375 4.125 6.879 4.125 7.5v10.875c0 .621.504 1.125 1.125 1.125z"
+                  />
+                </svg>
+                <span className="text-xs font-semibold uppercase tracking-wide text-sasa-neutral-400">
+                  Order Summary
+                </span>
+              </div>
               <div className="flex items-baseline justify-between text-sm">
                 <span className="text-sasa-neutral-500">
                   Your ticket (
@@ -478,7 +623,7 @@ export default function TicketPurchaseForm({
             <button
               onClick={goToStep2}
               disabled={submitting}
-              className="rounded bg-sasa-red-900 px-6 py-2 text-sm font-semibold text-white hover:bg-sasa-red-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+              className="rounded-lg bg-sasa-red-900 px-8 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-sasa-red-700 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {submitting ? "Please wait..." : "Continue →"}
             </button>
@@ -496,6 +641,18 @@ export default function TicketPurchaseForm({
 
           {cardTotals && (
             <div className="mb-6 rounded-lg border border-gray-200 bg-gray-50 p-4">
+              <div className="mb-3 flex items-center gap-2">
+                <svg className="h-4 w-4 text-sasa-gold-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M9 12h6m-6 3h3m-8.25 4.5h13.5c.621 0 1.125-.504 1.125-1.125V7.5c0-.621-.504-1.125-1.125-1.125H5.25C4.629 6.375 4.125 6.879 4.125 7.5v10.875c0 .621.504 1.125 1.125 1.125z"
+                  />
+                </svg>
+                <span className="text-xs font-semibold uppercase tracking-wide text-sasa-neutral-400">
+                  Order Summary
+                </span>
+              </div>
               <div className="flex items-baseline justify-between text-sm">
                 <span className="text-sasa-neutral-500">
                   {breakdownLabel(cardTotals.memberUnits, cardTotals.nonMemberUnits)}
