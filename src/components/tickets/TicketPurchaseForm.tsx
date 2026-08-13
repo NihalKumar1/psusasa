@@ -8,6 +8,7 @@ import {
   useStripe,
   useElements,
 } from "@stripe/react-stripe-js";
+import { computeCardFee } from "@/lib/fees";
 
 const stripePromise = loadStripe(
   process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!
@@ -109,17 +110,21 @@ export default function TicketPurchaseForm({
     setAdditionalQuantity((q) => Math.min(q, maxAdditionalQuantity));
   }, [maxAdditionalQuantity]);
 
-  // Cash at the door is members-only — this is only a client-side hint
-  // (the server does the real verification), so it gates on "looks like a
-  // PSU email" rather than confirmed membership, which isn't known yet.
-  const psuEmailLooksValid = /^[^\s@]+@psu\.edu$/i.test(psuEmail.trim());
-  const cashAvailable = psuEmailLooksValid;
-
-  useEffect(() => {
-    if (!cashAvailable && paymentMethod === "cash") {
-      setPaymentMethod("card");
-    }
-  }, [cashAvailable, paymentMethod]);
+  // Estimate only — whether this PSU email actually resolves to a current
+  // member (and whether they've already used their one discount for this
+  // event) is only known server-side. The real price is always confirmed
+  // in step 2 from the server response, this just gives a rough preview.
+  const psuEmailLooksLikeMember = /^[^\s@]+@psu\.edu$/i.test(psuEmail.trim());
+  const estimatedSubtotalCents = selectedType
+    ? (psuEmailLooksLikeMember
+        ? selectedType.memberPriceCents
+        : selectedType.nonMemberPriceCents) +
+      selectedType.nonMemberPriceCents * additionalQuantity
+    : 0;
+  const estimatedTotalCents =
+    paymentMethod === "card"
+      ? computeCardFee(estimatedSubtotalCents).totalCents
+      : estimatedSubtotalCents;
 
   function validateStep1(): boolean {
     const next: Record<string, string> = {};
@@ -392,37 +397,31 @@ export default function TicketPurchaseForm({
                 <span className="text-sm">Pay now (card)</span>
               </label>
               <label
-                className={`flex items-center gap-3 rounded border px-3 py-2 transition-colors ${
-                  !cashAvailable
-                    ? "cursor-not-allowed border-gray-200 opacity-50"
-                    : "cursor-pointer " +
-                      (paymentMethod === "cash"
-                        ? "border-sasa-red-900 bg-sasa-red-900/5"
-                        : "border-gray-300 hover:border-sasa-red-900/40")
+                className={`flex items-center gap-3 rounded border px-3 py-2 cursor-pointer transition-colors ${
+                  paymentMethod === "cash"
+                    ? "border-sasa-red-900 bg-sasa-red-900/5"
+                    : "border-gray-300 hover:border-sasa-red-900/40"
                 }`}
               >
                 <input
                   type="radio"
                   name="paymentMethod"
                   checked={paymentMethod === "cash"}
-                  disabled={!cashAvailable}
                   onChange={() => setPaymentMethod("cash")}
                   className="accent-sasa-red-900"
                 />
                 <span className="text-sm">Pay cash at the door</span>
               </label>
             </div>
-            {!cashAvailable && (
-              <p className="mt-2 text-xs text-sasa-neutral-500">
-                Cash at the door is available to members — enter your PSU
-                email above to unlock it.
-              </p>
-            )}
-            {cashAvailable && paymentMethod === "cash" && (
-              <p className="mt-2 text-xs text-sasa-neutral-500">
-                You&apos;ll be on the door list, but your tickets aren&apos;t
-                paid until you hand over cash there.
-              </p>
+            {paymentMethod === "cash" && (
+              <div className="mt-2 rounded border border-amber-200 bg-amber-50 p-3">
+                <p className="text-xs text-amber-800">
+                  <strong>No cash, no entry.</strong> You&apos;ll be on the
+                  door list, but you must pay in full with cash at the door
+                  to be let in. Exact change is recommended — we can&apos;t
+                  guarantee change will be available at the door.
+                </p>
+              </div>
             )}
           </div>
 
@@ -431,6 +430,18 @@ export default function TicketPurchaseForm({
               <p className="text-sm text-red-700">{submitError}</p>
             </div>
           )}
+
+          <div className="flex items-center justify-between border-t border-gray-100 pt-4">
+            <div className="text-sm">
+              <span className="text-sasa-neutral-500">Estimated total: </span>
+              <span className="font-semibold text-sasa-red-900">
+                {formatPrice(estimatedTotalCents)}
+              </span>
+              <p className="text-xs text-sasa-neutral-400">
+                Confirmed once membership is verified at checkout.
+              </p>
+            </div>
+          </div>
 
           <div className="flex justify-end">
             <button
@@ -539,6 +550,13 @@ export default function TicketPurchaseForm({
                 </span>{" "}
                 cash to the door.
               </p>
+              <div className="mt-4 rounded border border-amber-200 bg-amber-50 p-3">
+                <p className="text-xs font-semibold text-amber-800">
+                  No cash, no entry — you will not be admitted without
+                  payment. Exact change is recommended; we can&apos;t
+                  guarantee change will be available at the door.
+                </p>
+              </div>
             </div>
           )}
 
