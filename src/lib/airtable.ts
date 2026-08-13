@@ -359,7 +359,7 @@ export async function updateTicketCheckinState(
   const fields: Record<string, unknown> = {};
   if (updates.checkedIn !== undefined) {
     fields["Checked In"] = updates.checkedIn;
-    fields["Checked In At"] = updates.checkedIn ? new Date().toISOString() : "";
+    fields["Checked In At"] = updates.checkedIn ? new Date().toISOString() : null;
   }
   if (updates.paid !== undefined) {
     fields["Paid"] = updates.paid;
