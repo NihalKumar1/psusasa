@@ -229,6 +229,18 @@ export default async function EventDetailPage({ params }: EventPageProps) {
             )}
           </div>
 
+          {/* Buy Tickets CTA */}
+          {event.ticketingEnabled && event.ticketTypes && event.ticketTypes.length > 0 && (
+            <div className="mt-6">
+              <Link
+                href={`/events/${params.slug}/tickets`}
+                className="inline-block rounded bg-sasa-red-900 px-6 py-3 text-sm font-semibold text-white transition-colors hover:bg-sasa-red-700"
+              >
+                Buy Tickets
+              </Link>
+            </div>
+          )}
+
           {/* Description */}
           {event.description && (
             <div className="mt-8 rounded-xl border border-gray-100 bg-gray-50 p-6">

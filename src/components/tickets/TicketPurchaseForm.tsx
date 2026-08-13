@@ -1,0 +1,543 @@
+"use client";
+
+import React, { useEffect, useMemo, useState } from "react";
+import { loadStripe } from "@stripe/stripe-js";
+import {
+  Elements,
+  PaymentElement,
+  useStripe,
+  useElements,
+} from "@stripe/react-stripe-js";
+
+const stripePromise = loadStripe(
+  process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!
+);
+
+// Must match MAX_TICKETS_PER_ORDER in src/lib/ticketing.ts — that's the
+// value actually enforced server-side; this only bounds the input client-side.
+const MAX_TICKETS_PER_ORDER = 10;
+
+type PaymentMethod = "card" | "cash";
+type Step = 1 | 2;
+
+export interface TicketTypeOption {
+  _key: string;
+  name: string;
+  memberPriceCents: number;
+  nonMemberPriceCents: number;
+  salesOpen: boolean;
+  remaining: number | null;
+}
+
+interface TicketPurchaseFormProps {
+  eventId: string;
+  eventSlug: string;
+  ticketTypes: TicketTypeOption[];
+}
+
+function formatPrice(cents: number): string {
+  return `$${(cents / 100).toFixed(2)}`;
+}
+
+export default function TicketPurchaseForm({
+  eventId,
+  eventSlug,
+  ticketTypes,
+}: TicketPurchaseFormProps) {
+  const purchasable = useMemo(
+    () =>
+      ticketTypes.filter(
+        (t) => t.salesOpen && (t.remaining === null || t.remaining > 0)
+      ),
+    [ticketTypes]
+  );
+
+  const [step, setStep] = useState<Step>(1);
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [contactEmail, setContactEmail] = useState("");
+  const [psuEmail, setPsuEmail] = useState("");
+  const [psuEmailWarning, setPsuEmailWarning] = useState<string | null>(null);
+  const [ticketTypeKey, setTicketTypeKey] = useState(purchasable[0]?._key ?? "");
+  const [quantity, setQuantity] = useState(1);
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("card");
+  const [errors, setErrors] = useState<Record<string, string>>({});
+
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+
+  const [clientSecret, setClientSecret] = useState<string | null>(null);
+  const [cardTotals, setCardTotals] = useState<{
+    subtotalCents: number;
+    feeCents: number;
+    totalCents: number;
+    isMember: boolean;
+  } | null>(null);
+
+  const [cashConfirmation, setCashConfirmation] = useState<{
+    amountDueCents: number;
+    ticketTypeName: string;
+    quantity: number;
+  } | null>(null);
+
+  const selectedType = purchasable.find((t) => t._key === ticketTypeKey);
+  const maxQuantity = selectedType
+    ? Math.max(
+        1,
+        Math.min(MAX_TICKETS_PER_ORDER, selectedType.remaining ?? MAX_TICKETS_PER_ORDER)
+      )
+    : MAX_TICKETS_PER_ORDER;
+
+  useEffect(() => {
+    setQuantity((q) => Math.min(q, maxQuantity));
+  }, [maxQuantity]);
+
+  function validateStep1(): boolean {
+    const next: Record<string, string> = {};
+    if (!firstName.trim()) next.firstName = "First name is required.";
+    if (!lastName.trim()) next.lastName = "Last name is required.";
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactEmail.trim())) {
+      next.contactEmail = "Please enter a valid email.";
+    }
+    if (!ticketTypeKey) next.ticketTypeKey = "Please select a ticket type.";
+    if (!quantity || quantity < 1 || quantity > maxQuantity) {
+      next.quantity = `Please choose between 1 and ${maxQuantity} tickets.`;
+    }
+    setErrors(next);
+    return Object.keys(next).length === 0;
+  }
+
+  async function goToStep2() {
+    if (!validateStep1()) return;
+    setSubmitError(null);
+    setStep(2);
+    setSubmitting(true);
+
+    const payload = {
+      eventId,
+      ticketTypeKey,
+      quantity,
+      firstName: firstName.trim(),
+      lastName: lastName.trim(),
+      contactEmail: contactEmail.trim(),
+      psuEmail: psuEmail.trim(),
+    };
+
+    try {
+      if (paymentMethod === "card") {
+        const res = await fetch("/api/create-ticket-payment-intent", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.clientSecret) {
+          throw new Error(data.error ?? "Failed to start checkout.");
+        }
+        setClientSecret(data.clientSecret);
+        setCardTotals({
+          subtotalCents: data.subtotalCents,
+          feeCents: data.feeCents,
+          totalCents: data.totalCents,
+          isMember: data.isMember,
+        });
+      } else {
+        const res = await fetch("/api/create-cash-ticket-order", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.error ?? "Failed to record your order.");
+        }
+        setCashConfirmation({
+          amountDueCents: data.amountDueCents,
+          ticketTypeName: data.ticketTypeName,
+          quantity: data.quantity,
+        });
+      }
+    } catch (err) {
+      setSubmitError(err instanceof Error ? err.message : "Something went wrong.");
+      setStep(1);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  function goBack() {
+    setSubmitError(null);
+    setStep(1);
+  }
+
+  if (purchasable.length === 0) {
+    return (
+      <div className="rounded-xl border border-gray-200 bg-white p-8 text-center text-sasa-neutral-500">
+        Tickets aren&apos;t available for this event right now.
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-xl border border-gray-200 bg-white p-8 shadow-sm">
+      {step === 1 && (
+        <div className="space-y-5">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label className="block text-sm font-medium text-sasa-red-900 mb-1">
+                First Name <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                value={firstName}
+                onChange={(e) => setFirstName(e.target.value)}
+                className="w-full rounded border border-gray-300 px-3 py-2 text-sm focus:border-sasa-red-900 focus:outline-none focus:ring-1 focus:ring-sasa-red-900"
+              />
+              {errors.firstName && (
+                <p className="mt-1 text-xs text-red-500">{errors.firstName}</p>
+              )}
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-sasa-red-900 mb-1">
+                Last Name <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                value={lastName}
+                onChange={(e) => setLastName(e.target.value)}
+                className="w-full rounded border border-gray-300 px-3 py-2 text-sm focus:border-sasa-red-900 focus:outline-none focus:ring-1 focus:ring-sasa-red-900"
+              />
+              {errors.lastName && (
+                <p className="mt-1 text-xs text-red-500">{errors.lastName}</p>
+              )}
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-sasa-red-900 mb-1">
+              Contact Email <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="email"
+              value={contactEmail}
+              onChange={(e) => setContactEmail(e.target.value)}
+              placeholder="Your receipt and confirmation go here"
+              className="w-full rounded border border-gray-300 px-3 py-2 text-sm focus:border-sasa-red-900 focus:outline-none focus:ring-1 focus:ring-sasa-red-900"
+            />
+            {errors.contactEmail && (
+              <p className="mt-1 text-xs text-red-500">{errors.contactEmail}</p>
+            )}
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-sasa-red-900 mb-1">
+              PSU Email{" "}
+              <span className="font-normal text-sasa-neutral-400">
+                (optional — for member pricing)
+              </span>
+            </label>
+            <input
+              type="email"
+              value={psuEmail}
+              onChange={(e) => setPsuEmail(e.target.value)}
+              onBlur={() => {
+                const trimmed = psuEmail.trim();
+                setPsuEmailWarning(
+                  trimmed && !/^[^\s@]+@psu\.edu$/i.test(trimmed)
+                    ? "That doesn't look like a @psu.edu address — you'll be charged the non-member price unless you fix it."
+                    : null
+                );
+              }}
+              placeholder="you@psu.edu"
+              className="w-full rounded border border-gray-300 px-3 py-2 text-sm focus:border-sasa-red-900 focus:outline-none focus:ring-1 focus:ring-sasa-red-900"
+            />
+            {psuEmailWarning && (
+              <p className="mt-1 text-xs text-amber-600">{psuEmailWarning}</p>
+            )}
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-sasa-red-900 mb-2">
+              Ticket Type <span className="text-red-500">*</span>
+            </label>
+            <div className="space-y-2">
+              {purchasable.map((t) => (
+                <label
+                  key={t._key}
+                  className={`flex items-start gap-3 rounded border px-3 py-2 cursor-pointer transition-colors ${
+                    ticketTypeKey === t._key
+                      ? "border-sasa-red-900 bg-sasa-red-900/5"
+                      : "border-gray-300 hover:border-sasa-red-900/40"
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="ticketType"
+                    value={t._key}
+                    checked={ticketTypeKey === t._key}
+                    onChange={() => setTicketTypeKey(t._key)}
+                    className="mt-1 accent-sasa-red-900"
+                  />
+                  <span className="flex-1 text-sm">
+                    <span className="block font-medium">{t.name}</span>
+                    <span className="block text-sasa-neutral-500">
+                      Members {formatPrice(t.memberPriceCents)} · Non-members{" "}
+                      {formatPrice(t.nonMemberPriceCents)}
+                    </span>
+                    {typeof t.remaining === "number" && t.remaining <= 10 && (
+                      <span className="block text-xs text-amber-600">
+                        Only {t.remaining} left
+                      </span>
+                    )}
+                  </span>
+                </label>
+              ))}
+            </div>
+            {errors.ticketTypeKey && (
+              <p className="mt-1 text-xs text-red-500">{errors.ticketTypeKey}</p>
+            )}
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-sasa-red-900 mb-1">
+              Quantity
+            </label>
+            <input
+              type="number"
+              min={1}
+              max={maxQuantity}
+              value={quantity}
+              onChange={(e) =>
+                setQuantity(Math.max(1, Math.min(maxQuantity, Number(e.target.value) || 1)))
+              }
+              className="w-24 rounded border border-gray-300 px-3 py-2 text-sm focus:border-sasa-red-900 focus:outline-none focus:ring-1 focus:ring-sasa-red-900"
+            />
+            {errors.quantity && (
+              <p className="mt-1 text-xs text-red-500">{errors.quantity}</p>
+            )}
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-sasa-red-900 mb-2">
+              Payment Method
+            </label>
+            <div className="space-y-2">
+              <label
+                className={`flex items-center gap-3 rounded border px-3 py-2 cursor-pointer transition-colors ${
+                  paymentMethod === "card"
+                    ? "border-sasa-red-900 bg-sasa-red-900/5"
+                    : "border-gray-300 hover:border-sasa-red-900/40"
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="paymentMethod"
+                  checked={paymentMethod === "card"}
+                  onChange={() => setPaymentMethod("card")}
+                  className="accent-sasa-red-900"
+                />
+                <span className="text-sm">Pay now (card)</span>
+              </label>
+              <label
+                className={`flex items-center gap-3 rounded border px-3 py-2 cursor-pointer transition-colors ${
+                  paymentMethod === "cash"
+                    ? "border-sasa-red-900 bg-sasa-red-900/5"
+                    : "border-gray-300 hover:border-sasa-red-900/40"
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="paymentMethod"
+                  checked={paymentMethod === "cash"}
+                  onChange={() => setPaymentMethod("cash")}
+                  className="accent-sasa-red-900"
+                />
+                <span className="text-sm">Pay cash at the door</span>
+              </label>
+            </div>
+            {paymentMethod === "cash" && (
+              <p className="mt-2 text-xs text-sasa-neutral-500">
+                You&apos;ll be on the door list, but your ticket isn&apos;t paid
+                until you hand over cash there.
+              </p>
+            )}
+          </div>
+
+          {submitError && (
+            <div className="rounded-lg border border-red-200 bg-red-50 p-4">
+              <p className="text-sm text-red-700">{submitError}</p>
+            </div>
+          )}
+
+          <div className="flex justify-end">
+            <button
+              onClick={goToStep2}
+              disabled={submitting}
+              className="rounded bg-sasa-red-900 px-6 py-2 text-sm font-semibold text-white hover:bg-sasa-red-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+            >
+              {submitting ? "Please wait..." : "Continue →"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {step === 2 && paymentMethod === "card" && (
+        <div>
+          {submitting && (
+            <p className="mb-4 text-sm text-sasa-neutral-500">
+              Loading payment form...
+            </p>
+          )}
+
+          {cardTotals && (
+            <div className="mb-6 rounded-lg border border-gray-200 bg-gray-50 p-4">
+              <div className="flex items-baseline justify-between text-sm">
+                <span className="text-sasa-neutral-500">
+                  Subtotal{" "}
+                  {cardTotals.isMember ? "(member price)" : "(non-member price)"}
+                </span>
+                <span>{formatPrice(cardTotals.subtotalCents)}</span>
+              </div>
+              <div className="mt-1 flex items-baseline justify-between text-sm text-sasa-neutral-500">
+                <span>Card processing fee</span>
+                <span>{formatPrice(cardTotals.feeCents)}</span>
+              </div>
+              <div className="mt-2 flex items-baseline justify-between border-t border-gray-200 pt-2">
+                <span className="text-base font-semibold text-sasa-red-900">
+                  Total
+                </span>
+                <span className="text-2xl font-bold text-sasa-gold-600">
+                  {formatPrice(cardTotals.totalCents)}
+                </span>
+              </div>
+            </div>
+          )}
+
+          {submitError && (
+            <div className="mb-6 rounded-lg border border-red-200 bg-red-50 p-4">
+              <p className="text-sm text-red-700">{submitError}</p>
+            </div>
+          )}
+
+          {clientSecret && (
+            <Elements
+              stripe={stripePromise}
+              options={{ clientSecret, appearance: { theme: "stripe" } }}
+            >
+              <TicketCheckoutForm eventSlug={eventSlug} />
+            </Elements>
+          )}
+
+          <div className="mt-6">
+            <button
+              onClick={goBack}
+              disabled={submitting}
+              className="rounded border-2 border-sasa-gold-400 px-6 py-2 text-sm font-semibold text-sasa-gold-400 hover:bg-sasa-gold-400/10 disabled:opacity-60 transition-colors"
+            >
+              ← Back
+            </button>
+          </div>
+        </div>
+      )}
+
+      {step === 2 && paymentMethod === "cash" && (
+        <div className="text-center">
+          {submitting && (
+            <p className="text-sm text-sasa-neutral-500">Recording your order...</p>
+          )}
+
+          {submitError && (
+            <div className="mb-6 rounded-lg border border-red-200 bg-red-50 p-4 text-left">
+              <p className="text-sm text-red-700">{submitError}</p>
+            </div>
+          )}
+
+          {cashConfirmation && (
+            <div>
+              <div className="mb-6 inline-flex h-16 w-16 items-center justify-center rounded-full bg-sasa-gold-400/20">
+                <svg
+                  className="h-10 w-10 text-sasa-gold-600"
+                  fill="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path d="M20.293 5.293a1 1 0 011.414 1.414l-10 10a1 1 0 01-1.414 0l-6-6a1 1 0 011.414-1.414L10 14.586l9.293-9.293z" />
+                </svg>
+              </div>
+              <h2 className="mb-2 font-heading text-xl font-bold text-sasa-red-900">
+                You&apos;re on the list!
+              </h2>
+              <p className="text-sm text-sasa-neutral-500">
+                {cashConfirmation.quantity}x {cashConfirmation.ticketTypeName} —
+                bring{" "}
+                <span className="font-semibold text-sasa-red-900">
+                  {formatPrice(cashConfirmation.amountDueCents)}
+                </span>{" "}
+                cash to the door.
+              </p>
+            </div>
+          )}
+
+          {!submitting && !cashConfirmation && (
+            <button
+              onClick={goBack}
+              className="rounded border-2 border-sasa-gold-400 px-6 py-2 text-sm font-semibold text-sasa-gold-400 hover:bg-sasa-gold-400/10 transition-colors"
+            >
+              ← Back
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+interface TicketCheckoutFormProps {
+  eventSlug: string;
+}
+
+function TicketCheckoutForm({ eventSlug }: TicketCheckoutFormProps) {
+  const stripe = useStripe();
+  const elements = useElements();
+  const [isLoading, setIsLoading] = useState(false);
+  const [isPaymentComplete, setIsPaymentComplete] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!stripe || !elements) return;
+
+    setIsLoading(true);
+    setErrorMsg(null);
+
+    const { error } = await stripe.confirmPayment({
+      elements,
+      confirmParams: {
+        return_url: `${window.location.origin}/events/${eventSlug}/tickets/return`,
+      },
+    });
+
+    if (error) {
+      setErrorMsg(error.message ?? "Payment failed. Please try again.");
+      setIsLoading(false);
+    }
+  }
+
+  return (
+    <form onSubmit={handleSubmit}>
+      <PaymentElement onChange={(event) => setIsPaymentComplete(event.complete)} />
+      {!isPaymentComplete && (
+        <p className="mt-3 text-sm text-sasa-neutral-500">
+          Please complete your payment details to continue.
+        </p>
+      )}
+      {errorMsg && <p className="mt-3 text-sm text-red-600">{errorMsg}</p>}
+      <button
+        type="submit"
+        disabled={!stripe || isLoading || !isPaymentComplete}
+        className="mt-6 w-full rounded bg-sasa-red-900 px-6 py-3 text-sm font-semibold text-white hover:bg-sasa-red-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+      >
+        {isLoading ? "Processing..." : "Get Tickets"}
+      </button>
+    </form>
+  );
+}

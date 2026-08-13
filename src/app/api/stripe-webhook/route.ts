@@ -1,6 +1,6 @@
 import Stripe from "stripe";
 import { NextRequest, NextResponse } from "next/server";
-import { appendMemberToAirtable } from "@/lib/airtable";
+import { appendMemberToAirtable, appendTicketToAirtable } from "@/lib/airtable";
 import { addMemberToGroupMe } from "@/lib/groupme";
 
 export const runtime = "nodejs";
@@ -38,16 +38,36 @@ export async function POST(req: NextRequest) {
 
     if (event.type === "payment_intent.succeeded") {
       const paymentIntent = event.data.object as Stripe.PaymentIntent;
+      const metadata = paymentIntent.metadata;
 
-      if (paymentIntent.metadata) {
-        await appendMemberToAirtable(paymentIntent.metadata, paymentIntent.id);
+      if (metadata?.purchaseType === "ticket") {
+        await appendTicketToAirtable(
+          {
+            firstName: metadata.firstName ?? "",
+            lastName: metadata.lastName ?? "",
+            contactEmail: metadata.contactEmail ?? "",
+            psuEmail: metadata.psuEmail ?? "",
+            isMember: metadata.isMember === "true",
+            eventId: metadata.eventId ?? "",
+            eventName: metadata.eventName ?? "",
+            ticketTypeKey: metadata.ticketTypeKey ?? "",
+            ticketTypeName: metadata.ticketTypeName ?? "",
+            quantity: Number(metadata.quantity) || 1,
+            amountPaidCents: paymentIntent.amount,
+            paymentMethod: "Card",
+            paid: true,
+          },
+          paymentIntent.id
+        );
+      } else if (metadata) {
+        await appendMemberToAirtable(metadata, paymentIntent.id);
         // Transfer students are added to GroupMe manually after admin
         // verifies their campus change proof email — skip the auto-add.
-        if (paymentIntent.metadata.membershipType !== "transfer") {
+        if (metadata.membershipType !== "transfer") {
           // GroupMe failure must not block the 200 response — it self-handles
           // errors by emailing the admin.
           try {
-            await addMemberToGroupMe(paymentIntent.metadata, paymentIntent.id);
+            await addMemberToGroupMe(metadata, paymentIntent.id);
           } catch (err) {
             console.error("GroupMe add threw unexpectedly:", err);
           }

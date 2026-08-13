@@ -82,6 +82,97 @@ export default defineType({
       type: "boolean",
       initialValue: false,
     }),
+    defineField({
+      name: "ticketingEnabled",
+      title: "Ticketing Enabled",
+      type: "boolean",
+      description:
+        "Turn on to sell tickets for this event. Adds a \"Buy Tickets\" button to the event page and unlocks ticket types + the door check-in password below.",
+      initialValue: false,
+    }),
+    defineField({
+      name: "ticketTypes",
+      title: "Ticket Types",
+      type: "array",
+      description:
+        "One entry per ticket tier (e.g. General Admission, VIP). Each has its own member and non-member price.",
+      hidden: ({ parent }) => !parent?.ticketingEnabled,
+      of: [
+        {
+          type: "object",
+          name: "ticketType",
+          title: "Ticket Type",
+          fields: [
+            {
+              name: "name",
+              title: "Name",
+              type: "string",
+              validation: (Rule) => Rule.required(),
+            },
+            {
+              name: "memberPriceCents",
+              title: "Member Price (in cents)",
+              description: "e.g. 500 = $5.00. Use 0 for free.",
+              type: "number",
+              validation: (Rule) => Rule.required().integer().min(0),
+            },
+            {
+              name: "nonMemberPriceCents",
+              title: "Non-Member Price (in cents)",
+              description: "e.g. 1000 = $10.00. Use 0 for free.",
+              type: "number",
+              validation: (Rule) => Rule.required().integer().min(0),
+            },
+            {
+              name: "capacity",
+              title: "Capacity",
+              description: "Max tickets of this type. Leave blank for unlimited.",
+              type: "number",
+              validation: (Rule) => Rule.integer().min(1),
+            },
+            {
+              name: "salesOpen",
+              title: "Sales Open",
+              description:
+                "Turn off to pause sales for this ticket type without deleting it.",
+              type: "boolean",
+              initialValue: true,
+            },
+          ],
+          preview: {
+            select: {
+              title: "name",
+              memberPriceCents: "memberPriceCents",
+              nonMemberPriceCents: "nonMemberPriceCents",
+            },
+            prepare({ title, memberPriceCents, nonMemberPriceCents }) {
+              const fmt = (c: number) =>
+                typeof c === "number" ? `$${(c / 100).toFixed(2)}` : "—";
+              return {
+                title: title || "Ticket Type",
+                subtitle: `Member ${fmt(memberPriceCents)} / Non-member ${fmt(nonMemberPriceCents)}`,
+              };
+            },
+          },
+        },
+      ],
+    }),
+    defineField({
+      name: "checkinPassword",
+      title: "Door Check-In Password",
+      type: "string",
+      description:
+        "Staff enter this at /checkin to access this event's door check-in list. Set it before the event — without it, no one can check guests in.",
+      hidden: ({ parent }) => !parent?.ticketingEnabled,
+      validation: (Rule) =>
+        Rule.custom((value, context) => {
+          const parent = context.parent as { ticketingEnabled?: boolean } | undefined;
+          if (parent?.ticketingEnabled && !value) {
+            return "Set a check-in password before the event, or staff won't be able to check guests in at the door.";
+          }
+          return true;
+        }).warning(),
+    }),
   ],
   preview: {
     select: { title: "title", date: "date" },

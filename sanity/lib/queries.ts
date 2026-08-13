@@ -20,7 +20,27 @@ export const allEventsQuery = `*[_type == "event"] | order(date desc) {
 
 export const eventBySlugQuery = `*[_type == "event" && slug.current == $slug][0] {
   _id, title, slug, date, endDate, hideEndTime, location, hideLocation, description, coverImage, isFeatured,
+  ticketingEnabled, ticketTypes[]{ _key, name, memberPriceCents, nonMemberPriceCents, capacity, salesOpen },
   "category": category->{ _id, name, color }
+}`;
+
+// Looked up by Sanity _id rather than slug — Airtable ticket rows reference
+// the event by _id, so purchase/capacity checks need an _id-keyed lookup.
+// Deliberately excludes checkinPassword; this query's results can reach the browser.
+export const eventByIdQuery = `*[_type == "event" && _id == $id][0] {
+  _id, title, slug, date, endDate, hideEndTime, location, hideLocation, description, coverImage, isFeatured,
+  ticketingEnabled, ticketTypes[]{ _key, name, memberPriceCents, nonMemberPriceCents, capacity, salesOpen },
+  "category": category->{ _id, name, color }
+}`;
+
+export const ticketedEventsQuery = `*[_type == "event" && ticketingEnabled == true] | order(date desc) {
+  _id, title, date
+}`;
+
+// Server-only: used exclusively by the check-in login route. Kept separate
+// from eventByIdQuery so checkinPassword never ends up in a client-facing response.
+export const eventCheckinAuthQuery = `*[_type == "event" && _id == $id][0] {
+  _id, checkinPassword
 }`;
 
 export const categoriesQuery = `*[_type == "eventCategory"] | order(name asc) {
