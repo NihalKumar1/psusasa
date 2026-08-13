@@ -115,16 +115,18 @@ export default function TicketPurchaseForm({
   // event) is only known server-side. The real price is always confirmed
   // in step 2 from the server response, this just gives a rough preview.
   const psuEmailLooksLikeMember = /^[^\s@]+@psu\.edu$/i.test(psuEmail.trim());
-  const estimatedSubtotalCents = selectedType
-    ? (psuEmailLooksLikeMember
-        ? selectedType.memberPriceCents
-        : selectedType.nonMemberPriceCents) +
-      selectedType.nonMemberPriceCents * additionalQuantity
+  const estimatedOwnUnitCents = selectedType
+    ? psuEmailLooksLikeMember
+      ? selectedType.memberPriceCents
+      : selectedType.nonMemberPriceCents
     : 0;
-  const estimatedTotalCents =
-    paymentMethod === "card"
-      ? computeCardFee(estimatedSubtotalCents).totalCents
-      : estimatedSubtotalCents;
+  const estimatedAdditionalCents = selectedType
+    ? selectedType.nonMemberPriceCents * additionalQuantity
+    : 0;
+  const estimatedSubtotalCents = estimatedOwnUnitCents + estimatedAdditionalCents;
+  const estimatedFeeCents =
+    paymentMethod === "card" ? computeCardFee(estimatedSubtotalCents).feeCents : 0;
+  const estimatedTotalCents = estimatedSubtotalCents + estimatedFeeCents;
 
   function validateStep1(): boolean {
     const next: Record<string, string> = {};
@@ -431,17 +433,43 @@ export default function TicketPurchaseForm({
             </div>
           )}
 
-          <div className="flex items-center justify-between border-t border-gray-100 pt-4">
-            <div className="text-sm">
-              <span className="text-sasa-neutral-500">Estimated total: </span>
-              <span className="font-semibold text-sasa-red-900">
-                {formatPrice(estimatedTotalCents)}
-              </span>
-              <p className="text-xs text-sasa-neutral-400">
+          {selectedType && (
+            <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
+              <div className="flex items-baseline justify-between text-sm">
+                <span className="text-sasa-neutral-500">
+                  Your ticket (
+                  {psuEmailLooksLikeMember ? "member" : "non-member"} price)
+                </span>
+                <span>{formatPrice(estimatedOwnUnitCents)}</span>
+              </div>
+              {additionalQuantity > 0 && (
+                <div className="mt-1 flex items-baseline justify-between text-sm text-sasa-neutral-500">
+                  <span>
+                    {additionalQuantity} additional ticket
+                    {additionalQuantity === 1 ? "" : "s"} (non-member price)
+                  </span>
+                  <span>{formatPrice(estimatedAdditionalCents)}</span>
+                </div>
+              )}
+              {paymentMethod === "card" && (
+                <div className="mt-1 flex items-baseline justify-between text-sm text-sasa-neutral-500">
+                  <span>Card processing fee (est.)</span>
+                  <span>{formatPrice(estimatedFeeCents)}</span>
+                </div>
+              )}
+              <div className="mt-2 flex items-baseline justify-between border-t border-gray-200 pt-2">
+                <span className="text-base font-semibold text-sasa-red-900">
+                  Estimated Total
+                </span>
+                <span className="text-xl font-bold text-sasa-gold-600">
+                  {formatPrice(estimatedTotalCents)}
+                </span>
+              </div>
+              <p className="mt-2 text-xs text-sasa-neutral-400">
                 Confirmed once membership is verified at checkout.
               </p>
             </div>
-          </div>
+          )}
 
           <div className="flex justify-end">
             <button
