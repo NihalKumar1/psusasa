@@ -205,8 +205,9 @@ export default function CheckinBoard({
         <h1 className="font-heading text-lg font-semibold text-sasa-red-900">
           {eventTitle}
         </h1>
-        <div className="mt-3 grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
-          <Stat label="Checked In" value={`${stats.totalCheckedIn} / ${stats.totalSold}`} />
+        <div className="mt-3 grid grid-cols-2 gap-3 text-sm sm:grid-cols-3 lg:grid-cols-5">
+          <Stat label="Tickets Sold" value={String(stats.totalSold)} />
+          <Stat label="Checked In" value={String(stats.totalCheckedIn)} />
           <Stat label="Members" value={String(stats.memberSold)} />
           <Stat label="Non-Members" value={String(stats.nonMemberSold)} />
           <Stat
