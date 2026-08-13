@@ -190,7 +190,7 @@ Buyers can pay by card (Stripe, same-session) or choose "pay cash at the door," 
 1. Go to `psusasa.com/checkin`, pick the event, and enter that event's check-in password (each event has its own — a password only unlocks its own event)
 2. Search by name or email, tap an order to check it in — tap again to undo
 3. Cash orders show a "Cash due" badge; tapping one prompts you to confirm you collected the cash before it checks them in
-4. Multiple staff/devices can work the same board at once — check-ins sync across devices every ~10-15 seconds
+4. Multiple staff/devices can work the same board at once — check-ins sync across devices every ~3 seconds
 
 ### Updating Officers / E-Board
 

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { TicketRecord } from "@/lib/airtable";
 
-const POLL_INTERVAL_MS = 12000;
+const POLL_INTERVAL_MS = 3000;
 
 function formatPrice(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
