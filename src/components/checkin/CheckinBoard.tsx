@@ -9,6 +9,17 @@ function formatPrice(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
 }
 
+// A cash order's price isn't split per-ticket in Airtable (member/non-member
+// units can differ), so once some but not all of a party has checked in,
+// this is a proportional estimate of what's still owed — not penny-exact,
+// but good enough for staff to know roughly what to ask for. Manually
+// marking an order "paid" always overrides this to $0, for the "they paid
+// for everyone up front" case.
+function amountOwedCents(t: TicketRecord): number {
+  if (t.paymentMethod !== "Cash" || t.paid || t.quantity <= 0) return 0;
+  return Math.round((t.amountPaidCents * (t.quantity - t.checkedInCount)) / t.quantity);
+}
+
 interface CheckinBoardProps {
   eventId: string;
   eventTitle: string;
@@ -24,7 +35,6 @@ export default function CheckinBoard({
   const [search, setSearch] = useState("");
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [confirmCash, setConfirmCash] = useState<TicketRecord | null>(null);
 
   async function refetch() {
     try {
@@ -82,46 +92,40 @@ export default function CheckinBoard({
     }
   }
 
-  // Single-ticket orders keep the simple whole-row tap-to-toggle. The one
-  // exception either way: the first check-in of an unpaid cash order routes
-  // through the collect-cash confirmation instead of toggling immediately.
-  function handleTap(ticket: TicketRecord) {
-    if (ticket.checkedInCount > 0) {
-      sendMark(ticket.id, { checkedInCount: 0 });
-      return;
+  // Reaching full check-in on a cash order also marks it Paid — the "owed"
+  // badge already implies $0 once everyone's in, this makes that actually
+  // land in Airtable instead of just being a display quirk. One-directional:
+  // stepping back down never un-marks Paid, since undoing a check-in
+  // mistake doesn't mean the cash was handed back.
+  function checkinUpdates(
+    ticket: TicketRecord,
+    nextCount: number
+  ): { checkedInCount: number; paid?: boolean } {
+    const updates: { checkedInCount: number; paid?: boolean } = {
+      checkedInCount: nextCount,
+    };
+    if (nextCount >= ticket.quantity && ticket.paymentMethod === "Cash" && !ticket.paid) {
+      updates.paid = true;
     }
-    if (ticket.paymentMethod === "Cash" && !ticket.paid) {
-      setConfirmCash(ticket);
-      return;
-    }
-    sendMark(ticket.id, { checkedInCount: 1 });
+    return updates;
   }
 
-  // Multi-ticket orders use +/- instead of a whole-row tap, since "check in"
-  // isn't all-or-nothing when a party can arrive in separate groups.
+  // Single-ticket orders keep the simple whole-row tap-to-toggle.
+  function handleTap(ticket: TicketRecord) {
+    const nextCount = ticket.checkedInCount > 0 ? 0 : 1;
+    sendMark(ticket.id, checkinUpdates(ticket, nextCount));
+  }
+
+  // Multi-ticket orders use +/- instead of a whole-row tap, since check-in
+  // isn't all-or-nothing when a party can arrive (and pay) in stages.
   function incrementCheckedIn(ticket: TicketRecord) {
     if (ticket.checkedInCount >= ticket.quantity) return;
-    if (ticket.checkedInCount === 0 && ticket.paymentMethod === "Cash" && !ticket.paid) {
-      setConfirmCash(ticket);
-      return;
-    }
-    sendMark(ticket.id, { checkedInCount: ticket.checkedInCount + 1 });
+    sendMark(ticket.id, checkinUpdates(ticket, ticket.checkedInCount + 1));
   }
 
   function decrementCheckedIn(ticket: TicketRecord) {
     if (ticket.checkedInCount <= 0) return;
     sendMark(ticket.id, { checkedInCount: ticket.checkedInCount - 1 });
-  }
-
-  function confirmCollectCash() {
-    if (!confirmCash) return;
-    // Cash is collected once for the whole order, but only the arrivals
-    // physically present get checked in right now — for a party of 1
-    // that's the same thing, for a bigger party it's just the first count.
-    const nextCount =
-      confirmCash.quantity === 1 ? 1 : confirmCash.checkedInCount + 1;
-    sendMark(confirmCash.id, { checkedInCount: nextCount, paid: true });
-    setConfirmCash(null);
   }
 
   const filtered = useMemo(() => {
@@ -155,9 +159,7 @@ export default function CheckinBoard({
       totalCheckedIn += t.checkedInCount;
       if (t.isMember) memberSold += t.quantity;
       else nonMemberSold += t.quantity;
-      if (t.paymentMethod === "Cash" && !t.paid) {
-        cashOutstandingCents += t.amountPaidCents;
-      }
+      cashOutstandingCents += amountOwedCents(t);
 
       const entry = byType.get(t.ticketTypeName) ?? { sold: 0, checkedIn: 0 };
       entry.sold += t.quantity;
@@ -223,7 +225,7 @@ export default function CheckinBoard({
           </p>
         )}
         {sorted.map((t) => {
-          const cashDue = t.paymentMethod === "Cash" && !t.paid;
+          const owedCents = amountOwedCents(t);
           const isPending = pendingId === t.id;
           const isSingle = t.quantity === 1;
           const fullyCheckedIn = t.checkedInCount >= t.quantity;
@@ -269,9 +271,9 @@ export default function CheckinBoard({
                   >
                     {t.isMember ? "Member" : "Non-Member"}
                   </span>
-                  {cashDue && (
+                  {owedCents > 0 && (
                     <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
-                      Cash due: {formatPrice(t.amountPaidCents)}
+                      Owes {formatPrice(owedCents)}
                     </span>
                   )}
                 </div>
@@ -331,39 +333,6 @@ export default function CheckinBoard({
           );
         })}
       </div>
-
-      {confirmCash && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-lg">
-            <h2 className="mb-2 font-heading text-lg font-semibold text-sasa-red-900">
-              Collect cash
-            </h2>
-            <p className="mb-6 text-sm text-sasa-neutral-500">
-              {confirmCash.firstName} {confirmCash.lastName} owes{" "}
-              <span className="font-semibold text-sasa-red-900">
-                {formatPrice(confirmCash.amountPaidCents)}
-              </span>{" "}
-              {confirmCash.quantity > 1
-                ? `for all ${confirmCash.quantity} tickets. Collect it, then check in who's arrived.`
-                : ". Collect it, then check them in."}
-            </p>
-            <div className="flex justify-end gap-3">
-              <button
-                onClick={() => setConfirmCash(null)}
-                className="rounded border-2 border-sasa-gold-400 px-4 py-2 text-sm font-semibold text-sasa-gold-400 hover:bg-sasa-gold-400/10"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={confirmCollectCash}
-                className="rounded bg-sasa-red-900 px-4 py-2 text-sm font-semibold text-white hover:bg-sasa-red-700"
-              >
-                Collected — Check In
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
