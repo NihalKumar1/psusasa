@@ -49,6 +49,19 @@ export async function POST(req: NextRequest) {
       throw err;
     }
 
+    // Cash at the door is a members-only convenience — non-members must pay
+    // by card upfront, since there's less accountability for a no-show/
+    // non-payment from someone the org has no relationship with.
+    if (!order.isCurrentMember) {
+      return NextResponse.json(
+        {
+          error:
+            "Cash at the door is only available to current members. Please pay by card.",
+        },
+        { status: 403 }
+      );
+    }
+
     // No Stripe involved and no card fee — cash buyers pay exactly the
     // member/non-member ticket price. Writes straight to Airtable since
     // there's no PaymentIntent/webhook to hand off to.
@@ -75,6 +88,8 @@ export async function POST(req: NextRequest) {
       eventName: order.event.title,
       ticketTypeName: order.ticketType.name,
       quantity: order.quantity,
+      memberUnits: order.memberUnits,
+      nonMemberUnits: order.nonMemberUnits,
       amountDueCents: order.subtotalCents,
     });
   } catch (err) {

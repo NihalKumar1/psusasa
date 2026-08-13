@@ -39,6 +39,20 @@ function formatPrice(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
 }
 
+// Deliberately text-only (not computed dollar amounts) — the authoritative
+// total always comes from the server response, so this can't ever be shown
+// alongside a breakdown that doesn't sum to it.
+function breakdownLabel(memberUnits: number, nonMemberUnits: number): string {
+  const parts: string[] = [];
+  if (memberUnits > 0) {
+    parts.push(`${memberUnits} ticket${memberUnits === 1 ? "" : "s"} at member price`);
+  }
+  if (nonMemberUnits > 0) {
+    parts.push(`${nonMemberUnits} ticket${nonMemberUnits === 1 ? "" : "s"} at non-member price`);
+  }
+  return parts.join(" + ");
+}
+
 export default function TicketPurchaseForm({
   eventId,
   eventSlug,
@@ -59,7 +73,7 @@ export default function TicketPurchaseForm({
   const [psuEmail, setPsuEmail] = useState("");
   const [psuEmailWarning, setPsuEmailWarning] = useState<string | null>(null);
   const [ticketTypeKey, setTicketTypeKey] = useState(purchasable[0]?._key ?? "");
-  const [quantity, setQuantity] = useState(1);
+  const [additionalQuantity, setAdditionalQuantity] = useState(0);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("card");
   const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -68,16 +82,17 @@ export default function TicketPurchaseForm({
 
   const [clientSecret, setClientSecret] = useState<string | null>(null);
   const [cardTotals, setCardTotals] = useState<{
+    memberUnits: number;
+    nonMemberUnits: number;
     subtotalCents: number;
     feeCents: number;
     totalCents: number;
-    isMember: boolean;
   } | null>(null);
 
   const [cashConfirmation, setCashConfirmation] = useState<{
+    memberUnits: number;
+    nonMemberUnits: number;
     amountDueCents: number;
-    ticketTypeName: string;
-    quantity: number;
   } | null>(null);
 
   const selectedType = purchasable.find((t) => t._key === ticketTypeKey);
@@ -87,10 +102,24 @@ export default function TicketPurchaseForm({
         Math.min(MAX_TICKETS_PER_ORDER, selectedType.remaining ?? MAX_TICKETS_PER_ORDER)
       )
     : MAX_TICKETS_PER_ORDER;
+  // Your own ticket always reserves 1 of the available spots.
+  const maxAdditionalQuantity = Math.max(0, maxQuantity - 1);
 
   useEffect(() => {
-    setQuantity((q) => Math.min(q, maxQuantity));
-  }, [maxQuantity]);
+    setAdditionalQuantity((q) => Math.min(q, maxAdditionalQuantity));
+  }, [maxAdditionalQuantity]);
+
+  // Cash at the door is members-only — this is only a client-side hint
+  // (the server does the real verification), so it gates on "looks like a
+  // PSU email" rather than confirmed membership, which isn't known yet.
+  const psuEmailLooksValid = /^[^\s@]+@psu\.edu$/i.test(psuEmail.trim());
+  const cashAvailable = psuEmailLooksValid;
+
+  useEffect(() => {
+    if (!cashAvailable && paymentMethod === "cash") {
+      setPaymentMethod("card");
+    }
+  }, [cashAvailable, paymentMethod]);
 
   function validateStep1(): boolean {
     const next: Record<string, string> = {};
@@ -100,8 +129,12 @@ export default function TicketPurchaseForm({
       next.contactEmail = "Please enter a valid email.";
     }
     if (!ticketTypeKey) next.ticketTypeKey = "Please select a ticket type.";
-    if (!quantity || quantity < 1 || quantity > maxQuantity) {
-      next.quantity = `Please choose between 1 and ${maxQuantity} tickets.`;
+    if (
+      !Number.isInteger(additionalQuantity) ||
+      additionalQuantity < 0 ||
+      additionalQuantity > maxAdditionalQuantity
+    ) {
+      next.additionalQuantity = `Please choose between 0 and ${maxAdditionalQuantity} additional tickets.`;
     }
     setErrors(next);
     return Object.keys(next).length === 0;
@@ -116,7 +149,7 @@ export default function TicketPurchaseForm({
     const payload = {
       eventId,
       ticketTypeKey,
-      quantity,
+      quantity: 1 + additionalQuantity,
       firstName: firstName.trim(),
       lastName: lastName.trim(),
       contactEmail: contactEmail.trim(),
@@ -136,10 +169,11 @@ export default function TicketPurchaseForm({
         }
         setClientSecret(data.clientSecret);
         setCardTotals({
+          memberUnits: data.memberUnits,
+          nonMemberUnits: data.nonMemberUnits,
           subtotalCents: data.subtotalCents,
           feeCents: data.feeCents,
           totalCents: data.totalCents,
-          isMember: data.isMember,
         });
       } else {
         const res = await fetch("/api/create-cash-ticket-order", {
@@ -152,9 +186,9 @@ export default function TicketPurchaseForm({
           throw new Error(data.error ?? "Failed to record your order.");
         }
         setCashConfirmation({
+          memberUnits: data.memberUnits,
+          nonMemberUnits: data.nonMemberUnits,
           amountDueCents: data.amountDueCents,
-          ticketTypeName: data.ticketTypeName,
-          quantity: data.quantity,
         });
       }
     } catch (err) {
@@ -181,139 +215,158 @@ export default function TicketPurchaseForm({
   return (
     <div className="rounded-xl border border-gray-200 bg-white p-8 shadow-sm">
       {step === 1 && (
-        <div className="space-y-5">
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div>
-              <label className="block text-sm font-medium text-sasa-red-900 mb-1">
-                First Name <span className="text-red-500">*</span>
-              </label>
-              <input
-                type="text"
-                value={firstName}
-                onChange={(e) => setFirstName(e.target.value)}
-                className="w-full rounded border border-gray-300 px-3 py-2 text-sm focus:border-sasa-red-900 focus:outline-none focus:ring-1 focus:ring-sasa-red-900"
-              />
-              {errors.firstName && (
-                <p className="mt-1 text-xs text-red-500">{errors.firstName}</p>
-              )}
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-sasa-red-900 mb-1">
-                Last Name <span className="text-red-500">*</span>
-              </label>
-              <input
-                type="text"
-                value={lastName}
-                onChange={(e) => setLastName(e.target.value)}
-                className="w-full rounded border border-gray-300 px-3 py-2 text-sm focus:border-sasa-red-900 focus:outline-none focus:ring-1 focus:ring-sasa-red-900"
-              />
-              {errors.lastName && (
-                <p className="mt-1 text-xs text-red-500">{errors.lastName}</p>
-              )}
-            </div>
-          </div>
-
+        <div className="space-y-6">
           <div>
-            <label className="block text-sm font-medium text-sasa-red-900 mb-1">
-              Contact Email <span className="text-red-500">*</span>
-            </label>
-            <input
-              type="email"
-              value={contactEmail}
-              onChange={(e) => setContactEmail(e.target.value)}
-              placeholder="Your receipt and confirmation go here"
-              className="w-full rounded border border-gray-300 px-3 py-2 text-sm focus:border-sasa-red-900 focus:outline-none focus:ring-1 focus:ring-sasa-red-900"
-            />
-            {errors.contactEmail && (
-              <p className="mt-1 text-xs text-red-500">{errors.contactEmail}</p>
-            )}
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-sasa-red-900 mb-1">
-              PSU Email{" "}
-              <span className="font-normal text-sasa-neutral-400">
-                (optional — for member pricing)
-              </span>
-            </label>
-            <input
-              type="email"
-              value={psuEmail}
-              onChange={(e) => setPsuEmail(e.target.value)}
-              onBlur={() => {
-                const trimmed = psuEmail.trim();
-                setPsuEmailWarning(
-                  trimmed && !/^[^\s@]+@psu\.edu$/i.test(trimmed)
-                    ? "That doesn't look like a @psu.edu address — you'll be charged the non-member price unless you fix it."
-                    : null
-                );
-              }}
-              placeholder="you@psu.edu"
-              className="w-full rounded border border-gray-300 px-3 py-2 text-sm focus:border-sasa-red-900 focus:outline-none focus:ring-1 focus:ring-sasa-red-900"
-            />
-            {psuEmailWarning && (
-              <p className="mt-1 text-xs text-amber-600">{psuEmailWarning}</p>
-            )}
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-sasa-red-900 mb-2">
-              Ticket Type <span className="text-red-500">*</span>
-            </label>
-            <div className="space-y-2">
-              {purchasable.map((t) => (
-                <label
-                  key={t._key}
-                  className={`flex items-start gap-3 rounded border px-3 py-2 cursor-pointer transition-colors ${
-                    ticketTypeKey === t._key
-                      ? "border-sasa-red-900 bg-sasa-red-900/5"
-                      : "border-gray-300 hover:border-sasa-red-900/40"
-                  }`}
-                >
+            <h2 className="mb-4 font-heading text-base font-semibold text-sasa-red-900">
+              Your Ticket
+            </h2>
+            <div className="space-y-4">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="block text-sm font-medium text-sasa-red-900 mb-1">
+                    First Name <span className="text-red-500">*</span>
+                  </label>
                   <input
-                    type="radio"
-                    name="ticketType"
-                    value={t._key}
-                    checked={ticketTypeKey === t._key}
-                    onChange={() => setTicketTypeKey(t._key)}
-                    className="mt-1 accent-sasa-red-900"
+                    type="text"
+                    value={firstName}
+                    onChange={(e) => setFirstName(e.target.value)}
+                    className="w-full rounded border border-gray-300 px-3 py-2 text-sm focus:border-sasa-red-900 focus:outline-none focus:ring-1 focus:ring-sasa-red-900"
                   />
-                  <span className="flex-1 text-sm">
-                    <span className="block font-medium">{t.name}</span>
-                    <span className="block text-sasa-neutral-500">
-                      Members {formatPrice(t.memberPriceCents)} · Non-members{" "}
-                      {formatPrice(t.nonMemberPriceCents)}
-                    </span>
-                    {typeof t.remaining === "number" && t.remaining <= 10 && (
-                      <span className="block text-xs text-amber-600">
-                        Only {t.remaining} left
-                      </span>
-                    )}
+                  {errors.firstName && (
+                    <p className="mt-1 text-xs text-red-500">{errors.firstName}</p>
+                  )}
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-sasa-red-900 mb-1">
+                    Last Name <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={lastName}
+                    onChange={(e) => setLastName(e.target.value)}
+                    className="w-full rounded border border-gray-300 px-3 py-2 text-sm focus:border-sasa-red-900 focus:outline-none focus:ring-1 focus:ring-sasa-red-900"
+                  />
+                  {errors.lastName && (
+                    <p className="mt-1 text-xs text-red-500">{errors.lastName}</p>
+                  )}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-sasa-red-900 mb-1">
+                  Contact Email <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="email"
+                  value={contactEmail}
+                  onChange={(e) => setContactEmail(e.target.value)}
+                  placeholder="Your receipt and confirmation go here"
+                  className="w-full rounded border border-gray-300 px-3 py-2 text-sm focus:border-sasa-red-900 focus:outline-none focus:ring-1 focus:ring-sasa-red-900"
+                />
+                {errors.contactEmail && (
+                  <p className="mt-1 text-xs text-red-500">{errors.contactEmail}</p>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-sasa-red-900 mb-1">
+                  PSU Email{" "}
+                  <span className="font-normal text-sasa-neutral-400">
+                    (optional — for member pricing on your own ticket)
                   </span>
                 </label>
-              ))}
+                <input
+                  type="email"
+                  value={psuEmail}
+                  onChange={(e) => setPsuEmail(e.target.value)}
+                  onBlur={() => {
+                    const trimmed = psuEmail.trim();
+                    setPsuEmailWarning(
+                      trimmed && !/^[^\s@]+@psu\.edu$/i.test(trimmed)
+                        ? "That doesn't look like a @psu.edu address — you'll be charged the non-member price unless you fix it."
+                        : null
+                    );
+                  }}
+                  placeholder="you@psu.edu"
+                  className="w-full rounded border border-gray-300 px-3 py-2 text-sm focus:border-sasa-red-900 focus:outline-none focus:ring-1 focus:ring-sasa-red-900"
+                />
+                {psuEmailWarning && (
+                  <p className="mt-1 text-xs text-amber-600">{psuEmailWarning}</p>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-sasa-red-900 mb-2">
+                  Ticket Type <span className="text-red-500">*</span>
+                </label>
+                <div className="space-y-2">
+                  {purchasable.map((t) => (
+                    <label
+                      key={t._key}
+                      className={`flex items-start gap-3 rounded border px-3 py-2 cursor-pointer transition-colors ${
+                        ticketTypeKey === t._key
+                          ? "border-sasa-red-900 bg-sasa-red-900/5"
+                          : "border-gray-300 hover:border-sasa-red-900/40"
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="ticketType"
+                        value={t._key}
+                        checked={ticketTypeKey === t._key}
+                        onChange={() => setTicketTypeKey(t._key)}
+                        className="mt-1 accent-sasa-red-900"
+                      />
+                      <span className="flex-1 text-sm">
+                        <span className="block font-medium">{t.name}</span>
+                        <span className="block text-sasa-neutral-500">
+                          Members {formatPrice(t.memberPriceCents)} · Non-members{" "}
+                          {formatPrice(t.nonMemberPriceCents)}
+                        </span>
+                        {typeof t.remaining === "number" && t.remaining <= 10 && (
+                          <span className="block text-xs text-amber-600">
+                            Only {t.remaining} left
+                          </span>
+                        )}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+                {errors.ticketTypeKey && (
+                  <p className="mt-1 text-xs text-red-500">{errors.ticketTypeKey}</p>
+                )}
+              </div>
             </div>
-            {errors.ticketTypeKey && (
-              <p className="mt-1 text-xs text-red-500">{errors.ticketTypeKey}</p>
-            )}
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-sasa-red-900 mb-1">
-              Quantity
-            </label>
+          <div className="border-t border-gray-100 pt-6">
+            <h2 className="mb-1 font-heading text-base font-semibold text-sasa-red-900">
+              Additional Tickets
+            </h2>
+            <p className="mb-3 text-xs text-sasa-neutral-500">
+              Buying for friends too? Additional tickets are charged the
+              non-member rate
+              {selectedType &&
+                ` (${formatPrice(selectedType.nonMemberPriceCents)} each)`}{" "}
+              — no info needed from them, they&apos;re on the same order as you.
+            </p>
             <input
               type="number"
-              min={1}
-              max={maxQuantity}
-              value={quantity}
+              min={0}
+              max={maxAdditionalQuantity}
+              value={additionalQuantity}
               onChange={(e) =>
-                setQuantity(Math.max(1, Math.min(maxQuantity, Number(e.target.value) || 1)))
+                setAdditionalQuantity(
+                  Math.max(
+                    0,
+                    Math.min(maxAdditionalQuantity, Number(e.target.value) || 0)
+                  )
+                )
               }
               className="w-24 rounded border border-gray-300 px-3 py-2 text-sm focus:border-sasa-red-900 focus:outline-none focus:ring-1 focus:ring-sasa-red-900"
             />
-            {errors.quantity && (
-              <p className="mt-1 text-xs text-red-500">{errors.quantity}</p>
+            {errors.additionalQuantity && (
+              <p className="mt-1 text-xs text-red-500">{errors.additionalQuantity}</p>
             )}
           </div>
 
@@ -339,26 +392,36 @@ export default function TicketPurchaseForm({
                 <span className="text-sm">Pay now (card)</span>
               </label>
               <label
-                className={`flex items-center gap-3 rounded border px-3 py-2 cursor-pointer transition-colors ${
-                  paymentMethod === "cash"
-                    ? "border-sasa-red-900 bg-sasa-red-900/5"
-                    : "border-gray-300 hover:border-sasa-red-900/40"
+                className={`flex items-center gap-3 rounded border px-3 py-2 transition-colors ${
+                  !cashAvailable
+                    ? "cursor-not-allowed border-gray-200 opacity-50"
+                    : "cursor-pointer " +
+                      (paymentMethod === "cash"
+                        ? "border-sasa-red-900 bg-sasa-red-900/5"
+                        : "border-gray-300 hover:border-sasa-red-900/40")
                 }`}
               >
                 <input
                   type="radio"
                   name="paymentMethod"
                   checked={paymentMethod === "cash"}
+                  disabled={!cashAvailable}
                   onChange={() => setPaymentMethod("cash")}
                   className="accent-sasa-red-900"
                 />
                 <span className="text-sm">Pay cash at the door</span>
               </label>
             </div>
-            {paymentMethod === "cash" && (
+            {!cashAvailable && (
               <p className="mt-2 text-xs text-sasa-neutral-500">
-                You&apos;ll be on the door list, but your ticket isn&apos;t paid
-                until you hand over cash there.
+                Cash at the door is available to members — enter your PSU
+                email above to unlock it.
+              </p>
+            )}
+            {cashAvailable && paymentMethod === "cash" && (
+              <p className="mt-2 text-xs text-sasa-neutral-500">
+                You&apos;ll be on the door list, but your tickets aren&apos;t
+                paid until you hand over cash there.
               </p>
             )}
           </div>
@@ -393,8 +456,7 @@ export default function TicketPurchaseForm({
             <div className="mb-6 rounded-lg border border-gray-200 bg-gray-50 p-4">
               <div className="flex items-baseline justify-between text-sm">
                 <span className="text-sasa-neutral-500">
-                  Subtotal{" "}
-                  {cardTotals.isMember ? "(member price)" : "(non-member price)"}
+                  {breakdownLabel(cardTotals.memberUnits, cardTotals.nonMemberUnits)}
                 </span>
                 <span>{formatPrice(cardTotals.subtotalCents)}</span>
               </div>
@@ -467,8 +529,11 @@ export default function TicketPurchaseForm({
                 You&apos;re on the list!
               </h2>
               <p className="text-sm text-sasa-neutral-500">
-                {cashConfirmation.quantity}x {cashConfirmation.ticketTypeName} —
-                bring{" "}
+                {breakdownLabel(
+                  cashConfirmation.memberUnits,
+                  cashConfirmation.nonMemberUnits
+                )}{" "}
+                — bring{" "}
                 <span className="font-semibold text-sasa-red-900">
                   {formatPrice(cashConfirmation.amountDueCents)}
                 </span>{" "}
@@ -524,7 +589,9 @@ function TicketCheckoutForm({ eventSlug }: TicketCheckoutFormProps) {
 
   return (
     <form onSubmit={handleSubmit}>
-      <PaymentElement onChange={(event) => setIsPaymentComplete(event.complete)} />
+      <PaymentElement
+        onChange={(event) => setIsPaymentComplete(event.complete)}
+      />
       {!isPaymentComplete && (
         <p className="mt-3 text-sm text-sasa-neutral-500">
           Please complete your payment details to continue.

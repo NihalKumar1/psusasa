@@ -68,7 +68,8 @@ export async function POST(req: NextRequest) {
       contactEmail: trimmedEmail.slice(0, 500),
       psuEmail: String(psuEmail ?? "").trim().slice(0, 500),
       isMember: String(order.isMember),
-      unitPriceCents: String(order.unitPriceCents),
+      memberUnits: String(order.memberUnits),
+      nonMemberUnits: String(order.nonMemberUnits),
       subtotalCents: String(order.subtotalCents),
       cardFeeCents: String(feeCents),
       amountPaidCents: String(amount),
@@ -85,6 +86,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       clientSecret: paymentIntent.client_secret,
       isMember: order.isMember,
+      memberUnits: order.memberUnits,
+      nonMemberUnits: order.nonMemberUnits,
       subtotalCents: order.subtotalCents,
       feeCents,
       totalCents: amount,

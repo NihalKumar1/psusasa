@@ -47,6 +47,14 @@ export default async function TicketsReturnPage({
   const eventName = m.eventName ?? "your event";
   const ticketTypeName = m.ticketTypeName ?? "Ticket";
   const quantity = Number(m.quantity) || 1;
+  const memberUnits = Number(m.memberUnits) || 0;
+  const nonMemberUnits = Number(m.nonMemberUnits) || quantity;
+  const priceLabel = [
+    memberUnits > 0 ? `${memberUnits} at member price` : null,
+    nonMemberUnits > 0 ? `${nonMemberUnits} at non-member price` : null,
+  ]
+    .filter(Boolean)
+    .join(" + ");
 
   if (isComplete) {
     try {
@@ -105,8 +113,7 @@ export default async function TicketsReturnPage({
               </h2>
               <p className="mb-1 text-sasa-neutral-500">{eventName}</p>
               <p className="mb-6 text-sasa-neutral-500">
-                You paid {formatPrice(amountCents)}
-                {isMember ? " (member price)" : " (non-member price)"}. A
+                You paid {formatPrice(amountCents)} ({priceLabel}). A
                 confirmation email will be sent to the address you provided.
               </p>
 

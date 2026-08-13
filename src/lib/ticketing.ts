@@ -1,7 +1,11 @@
 import { sanityFetchSingle } from "../../sanity/lib/client";
 import { eventByIdQuery } from "../../sanity/lib/queries";
 import type { SanityEvent, TicketType } from "@/lib/types";
-import { lookupCurrentMember, sumSoldTicketQuantity } from "@/lib/airtable";
+import {
+  hasUsedMemberPricing,
+  lookupCurrentMember,
+  sumSoldTicketQuantity,
+} from "@/lib/airtable";
 
 export const MAX_TICKETS_PER_ORDER = 10;
 
@@ -24,8 +28,13 @@ export interface ResolvedTicketOrder {
   event: SanityEvent;
   ticketType: TicketType;
   quantity: number;
+  /** Raw membership-verification result, independent of discount eligibility. */
+  isCurrentMember: boolean;
+  /** True if this order's buyer-unit was priced at the member rate. */
   isMember: boolean;
-  unitPriceCents: number;
+  /** Always 0 or 1 — at most one seat per order/person ever gets member pricing. */
+  memberUnits: number;
+  nonMemberUnits: number;
   subtotalCents: number;
 }
 
@@ -68,10 +77,23 @@ export async function resolveTicketOrder({
   }
 
   const emailInput = typeof psuEmail === "string" ? psuEmail.trim() : "";
-  const isMember = emailInput ? await lookupCurrentMember(emailInput) : false;
-  const unitPriceCents = isMember
-    ? ticketType.memberPriceCents
-    : ticketType.nonMemberPriceCents;
+  const isCurrentMember = emailInput
+    ? await lookupCurrentMember(emailInput)
+    : false;
+
+  // At most 1 ticket per person, ever, gets the member price for a given
+  // event — the buyer's own seat, and only if they haven't already used
+  // that allowance in an earlier order. Any additional tickets in this
+  // order (for friends/guests) are charged at the non-member rate
+  // regardless of quantity — buying in bulk can't stack the discount.
+  const alreadyUsedMemberPricing = isCurrentMember
+    ? await hasUsedMemberPricing(event._id, emailInput)
+    : false;
+  const memberUnits = isCurrentMember && !alreadyUsedMemberPricing ? 1 : 0;
+  const nonMemberUnits = qty - memberUnits;
+  const subtotalCents =
+    memberUnits * ticketType.memberPriceCents +
+    nonMemberUnits * ticketType.nonMemberPriceCents;
 
   if (typeof ticketType.capacity === "number") {
     const sold = await sumSoldTicketQuantity(event._id, ticketType._key);
@@ -89,8 +111,10 @@ export async function resolveTicketOrder({
     event,
     ticketType,
     quantity: qty,
-    isMember,
-    unitPriceCents,
-    subtotalCents: unitPriceCents * qty,
+    isCurrentMember,
+    isMember: memberUnits > 0,
+    memberUnits,
+    nonMemberUnits,
+    subtotalCents,
   };
 }

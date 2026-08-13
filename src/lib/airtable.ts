@@ -274,6 +274,14 @@ export async function appendTicketToAirtable(
   console.log(`Ticket order for ${order.contactEmail} added to Airtable`);
 }
 
+async function sumTicketQuantity(formula: string): Promise<number> {
+  const records = await fetchAllAirtableRecords(ticketsBaseUrl(), formula);
+  return records.reduce((sum, r) => {
+    const qty = Number(r.fields["Quantity"]);
+    return sum + (Number.isFinite(qty) ? qty : 0);
+  }, 0);
+}
+
 // Counts every order for this ticket type regardless of Paid status — an
 // unpaid cash order still reserves a capacity slot the moment it's placed.
 export async function sumSoldTicketQuantity(
@@ -281,11 +289,24 @@ export async function sumSoldTicketQuantity(
   ticketTypeKey: string
 ): Promise<number> {
   const formula = `AND({Event ID} = '${escapeForAirtableFormula(eventId)}', {Ticket Type Key} = '${escapeForAirtableFormula(ticketTypeKey)}')`;
+  return sumTicketQuantity(formula);
+}
+
+// A person gets member pricing on at most 1 ticket per event, ever —
+// checked across ALL their past orders for this event (any ticket type),
+// so they can't dodge the cap by checking out multiple times or mixing
+// ticket types. Existence check, not a sum: appendTicketToAirtable never
+// writes more than 1 member-priced unit into a single row (see
+// resolveTicketOrder), so any matching row means the allowance is used.
+export async function hasUsedMemberPricing(
+  eventId: string,
+  psuEmail: string
+): Promise<boolean> {
+  const email = psuEmail.trim().toLowerCase();
+  if (!email) return false;
+  const formula = `AND({Event ID} = '${escapeForAirtableFormula(eventId)}', LOWER(TRIM({PSU Email})) = '${escapeForAirtableFormula(email)}', {Is Member} = TRUE())`;
   const records = await fetchAllAirtableRecords(ticketsBaseUrl(), formula);
-  return records.reduce((sum, r) => {
-    const qty = Number(r.fields["Quantity"]);
-    return sum + (Number.isFinite(qty) ? qty : 0);
-  }, 0);
+  return records.length > 0;
 }
 
 export interface TicketRecord {
