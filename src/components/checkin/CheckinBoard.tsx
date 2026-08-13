@@ -49,7 +49,7 @@ export default function CheckinBoard({
 
   async function sendMark(
     recordId: string,
-    updates: { checkedIn?: boolean; paid?: boolean }
+    updates: { checkedInCount?: number; paid?: boolean }
   ) {
     setPendingId(recordId);
     setError(null);
@@ -58,7 +58,7 @@ export default function CheckinBoard({
         t.id === recordId
           ? {
               ...t,
-              checkedIn: updates.checkedIn ?? t.checkedIn,
+              checkedInCount: updates.checkedInCount ?? t.checkedInCount,
               paid: updates.paid ?? t.paid,
             }
           : t
@@ -82,24 +82,45 @@ export default function CheckinBoard({
     }
   }
 
-  // Toggle works both directions — staff will mis-tap and need to undo.
-  // The one exception: the first check-in of an unpaid cash order routes
+  // Single-ticket orders keep the simple whole-row tap-to-toggle. The one
+  // exception either way: the first check-in of an unpaid cash order routes
   // through the collect-cash confirmation instead of toggling immediately.
   function handleTap(ticket: TicketRecord) {
-    if (ticket.checkedIn) {
-      sendMark(ticket.id, { checkedIn: false });
+    if (ticket.checkedInCount > 0) {
+      sendMark(ticket.id, { checkedInCount: 0 });
       return;
     }
     if (ticket.paymentMethod === "Cash" && !ticket.paid) {
       setConfirmCash(ticket);
       return;
     }
-    sendMark(ticket.id, { checkedIn: true });
+    sendMark(ticket.id, { checkedInCount: 1 });
+  }
+
+  // Multi-ticket orders use +/- instead of a whole-row tap, since "check in"
+  // isn't all-or-nothing when a party can arrive in separate groups.
+  function incrementCheckedIn(ticket: TicketRecord) {
+    if (ticket.checkedInCount >= ticket.quantity) return;
+    if (ticket.checkedInCount === 0 && ticket.paymentMethod === "Cash" && !ticket.paid) {
+      setConfirmCash(ticket);
+      return;
+    }
+    sendMark(ticket.id, { checkedInCount: ticket.checkedInCount + 1 });
+  }
+
+  function decrementCheckedIn(ticket: TicketRecord) {
+    if (ticket.checkedInCount <= 0) return;
+    sendMark(ticket.id, { checkedInCount: ticket.checkedInCount - 1 });
   }
 
   function confirmCollectCash() {
     if (!confirmCash) return;
-    sendMark(confirmCash.id, { checkedIn: true, paid: true });
+    // Cash is collected once for the whole order, but only the arrivals
+    // physically present get checked in right now — for a party of 1
+    // that's the same thing, for a bigger party it's just the first count.
+    const nextCount =
+      confirmCash.quantity === 1 ? 1 : confirmCash.checkedInCount + 1;
+    sendMark(confirmCash.id, { checkedInCount: nextCount, paid: true });
     setConfirmCash(null);
   }
 
@@ -131,7 +152,7 @@ export default function CheckinBoard({
 
     for (const t of tickets) {
       totalSold += t.quantity;
-      if (t.checkedIn) totalCheckedIn += t.quantity;
+      totalCheckedIn += t.checkedInCount;
       if (t.isMember) memberSold += t.quantity;
       else nonMemberSold += t.quantity;
       if (t.paymentMethod === "Cash" && !t.paid) {
@@ -140,7 +161,7 @@ export default function CheckinBoard({
 
       const entry = byType.get(t.ticketTypeName) ?? { sold: 0, checkedIn: 0 };
       entry.sold += t.quantity;
-      if (t.checkedIn) entry.checkedIn += t.quantity;
+      entry.checkedIn += t.checkedInCount;
       byType.set(t.ticketTypeName, entry);
     }
 
@@ -204,22 +225,34 @@ export default function CheckinBoard({
         {sorted.map((t) => {
           const cashDue = t.paymentMethod === "Cash" && !t.paid;
           const isPending = pendingId === t.id;
+          const isSingle = t.quantity === 1;
+          const fullyCheckedIn = t.checkedInCount >= t.quantity;
+          const partiallyCheckedIn = t.checkedInCount > 0 && !fullyCheckedIn;
+
           return (
             <div
               key={t.id}
-              role="button"
-              tabIndex={0}
-              onClick={() => !isPending && handleTap(t)}
-              onKeyDown={(e) => {
-                if ((e.key === "Enter" || e.key === " ") && !isPending) {
-                  e.preventDefault();
-                  handleTap(t);
-                }
-              }}
-              className={`flex cursor-pointer items-center gap-3 rounded-lg border px-4 py-3 transition-colors ${
-                t.checkedIn
+              role={isSingle ? "button" : undefined}
+              tabIndex={isSingle ? 0 : undefined}
+              onClick={isSingle ? () => !isPending && handleTap(t) : undefined}
+              onKeyDown={
+                isSingle
+                  ? (e) => {
+                      if ((e.key === "Enter" || e.key === " ") && !isPending) {
+                        e.preventDefault();
+                        handleTap(t);
+                      }
+                    }
+                  : undefined
+              }
+              className={`flex items-center gap-3 rounded-lg border px-4 py-3 transition-colors ${
+                isSingle ? "cursor-pointer" : ""
+              } ${
+                fullyCheckedIn
                   ? "border-sasa-gold-600/40 bg-sasa-gold-400/10"
-                  : "border-gray-200 bg-white hover:border-sasa-red-900/30"
+                  : partiallyCheckedIn
+                    ? "border-sasa-gold-600/20 bg-sasa-gold-400/5"
+                    : "border-gray-200 bg-white hover:border-sasa-red-900/30"
               } ${isPending ? "opacity-50" : ""}`}
             >
               <div className="flex-1">
@@ -261,15 +294,39 @@ export default function CheckinBoard({
                 </button>
               )}
 
-              <span
-                className={`shrink-0 rounded px-4 py-2 text-sm font-semibold ${
-                  t.checkedIn
-                    ? "bg-sasa-gold-600 text-sasa-red-900"
-                    : "bg-sasa-red-900 text-white"
-                }`}
-              >
-                {t.checkedIn ? "Checked In ✓" : "Check In"}
-              </span>
+              {isSingle ? (
+                <span
+                  className={`shrink-0 rounded px-4 py-2 text-sm font-semibold ${
+                    fullyCheckedIn
+                      ? "bg-sasa-gold-600 text-sasa-red-900"
+                      : "bg-sasa-red-900 text-white"
+                  }`}
+                >
+                  {fullyCheckedIn ? "Checked In ✓" : "Check In"}
+                </span>
+              ) : (
+                <div className="flex shrink-0 items-center gap-2">
+                  <button
+                    onClick={() => decrementCheckedIn(t)}
+                    disabled={isPending || t.checkedInCount <= 0}
+                    aria-label="Decrease checked-in count"
+                    className="flex h-8 w-8 items-center justify-center rounded-full border border-gray-300 text-lg font-semibold text-sasa-red-900 hover:bg-gray-50 disabled:opacity-40"
+                  >
+                    −
+                  </button>
+                  <span className="min-w-[3.5rem] text-center text-sm font-semibold text-sasa-red-900">
+                    {t.checkedInCount} / {t.quantity}
+                  </span>
+                  <button
+                    onClick={() => incrementCheckedIn(t)}
+                    disabled={isPending || t.checkedInCount >= t.quantity}
+                    aria-label="Increase checked-in count"
+                    className="flex h-8 w-8 items-center justify-center rounded-full border border-gray-300 text-lg font-semibold text-sasa-red-900 hover:bg-gray-50 disabled:opacity-40"
+                  >
+                    +
+                  </button>
+                </div>
+              )}
             </div>
           );
         })}
@@ -285,8 +342,10 @@ export default function CheckinBoard({
               {confirmCash.firstName} {confirmCash.lastName} owes{" "}
               <span className="font-semibold text-sasa-red-900">
                 {formatPrice(confirmCash.amountPaidCents)}
-              </span>
-              . Collect it, then check them in.
+              </span>{" "}
+              {confirmCash.quantity > 1
+                ? `for all ${confirmCash.quantity} tickets. Collect it, then check in who's arrived.`
+                : ". Collect it, then check them in."}
             </p>
             <div className="flex justify-end gap-3">
               <button

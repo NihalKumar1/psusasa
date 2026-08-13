@@ -261,7 +261,7 @@ export async function appendTicketToAirtable(
         "Payment Method": order.paymentMethod,
         Paid: order.paid,
         "Stripe Payment Intent ID": paymentIntentId ?? "",
-        "Checked In": false,
+        "Checked In Count": 0,
       },
     }),
   });
@@ -322,7 +322,8 @@ export interface TicketRecord {
   amountPaidCents: number;
   paymentMethod: "Card" | "Cash";
   paid: boolean;
-  checkedIn: boolean;
+  /** How many of this order's `quantity` seats have been checked in — 0 to quantity. */
+  checkedInCount: number;
   checkedInAt: string | null;
 }
 
@@ -349,17 +350,23 @@ export async function listTicketsForEvent(
       amountPaidCents: Math.round((Number(f["Amount Paid"]) || 0) * 100),
       paymentMethod,
       paid: Boolean(f["Paid"]),
-      checkedIn: Boolean(f["Checked In"]),
+      checkedInCount: Number(f["Checked In Count"]) || 0,
       checkedInAt: f["Checked In At"] ? String(f["Checked In At"]) : null,
     };
   });
 }
 
+export interface TicketRecordInfo {
+  eventId: string;
+  quantity: number;
+}
+
 // Used by the check-in mark route to confirm a record actually belongs to
-// the event the caller is authorized for, before allowing any update to it.
-export async function getTicketRecordEventId(
+// the event the caller is authorized for (before allowing any update to
+// it) and to clamp checkedInCount to a valid range for that order.
+export async function getTicketRecordInfo(
   recordId: string
-): Promise<string | null> {
+): Promise<TicketRecordInfo | null> {
   const res = await fetch(`${ticketsBaseUrl()}/${recordId}`, {
     headers: { Authorization: `Bearer ${process.env.AIRTABLE_API_KEY}` },
     cache: "no-store",
@@ -367,20 +374,23 @@ export async function getTicketRecordEventId(
   if (!res.ok) return null;
   const data = (await res.json()) as { fields?: Record<string, unknown> };
   const eventId = data.fields?.["Event ID"];
-  return typeof eventId === "string" ? eventId : null;
+  if (typeof eventId !== "string") return null;
+  const quantity = Number(data.fields?.["Quantity"]);
+  return { eventId, quantity: Number.isFinite(quantity) ? quantity : 0 };
 }
 
 // Single PATCH for the door check-in board: a normal tap only ever sends
-// `checkedIn`, but collecting cash at the door sends both `paid` and
-// `checkedIn` together so the two facts land in one atomic update.
+// `checkedInCount`, but collecting cash at the door sends both `paid` and
+// `checkedInCount` together so the two facts land in one atomic update.
 export async function updateTicketCheckinState(
   recordId: string,
-  updates: { checkedIn?: boolean; paid?: boolean }
+  updates: { checkedInCount?: number; paid?: boolean }
 ): Promise<void> {
   const fields: Record<string, unknown> = {};
-  if (updates.checkedIn !== undefined) {
-    fields["Checked In"] = updates.checkedIn;
-    fields["Checked In At"] = updates.checkedIn ? new Date().toISOString() : null;
+  if (updates.checkedInCount !== undefined) {
+    fields["Checked In Count"] = updates.checkedInCount;
+    fields["Checked In At"] =
+      updates.checkedInCount > 0 ? new Date().toISOString() : null;
   }
   if (updates.paid !== undefined) {
     fields["Paid"] = updates.paid;
