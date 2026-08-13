@@ -10,13 +10,13 @@ function formatPrice(cents: number): string {
 }
 
 // A cash order's price isn't split per-ticket in Airtable (member/non-member
-// units can differ), so once some but not all of a party has checked in,
-// this is a proportional estimate of what's still owed — not penny-exact,
-// but good enough for staff to know roughly what to ask for. Manually
-// marking an order "paid" always overrides this to $0, for the "they paid
-// for everyone up front" case.
+// units can differ), so this is a proportional estimate of what's still
+// owed as a party partially checks in — not penny-exact, but good enough
+// for staff to know roughly what to ask for. Purely derived from check-in
+// progress: there's no separate "paid" toggle, checking someone in is the
+// only action, and un-checking them raises the owed amount right back up.
 function amountOwedCents(t: TicketRecord): number {
-  if (t.paymentMethod !== "Cash" || t.paid || t.quantity <= 0) return 0;
+  if (t.paymentMethod !== "Cash" || t.quantity <= 0) return 0;
   return Math.round((t.amountPaidCents * (t.quantity - t.checkedInCount)) / t.quantity);
 }
 
@@ -92,11 +92,11 @@ export default function CheckinBoard({
     }
   }
 
-  // Reaching full check-in on a cash order also marks it Paid — the "owed"
-  // badge already implies $0 once everyone's in, this makes that actually
-  // land in Airtable instead of just being a display quirk. One-directional:
-  // stepping back down never un-marks Paid, since undoing a check-in
-  // mistake doesn't mean the cash was handed back.
+  // Paid is fully derived from check-in progress on cash orders — no
+  // separate manual toggle. Written alongside checkedInCount on every
+  // change (either direction) purely so raw Airtable views/reports have a
+  // simple boolean to filter/sum by; the board itself only ever reads
+  // amountOwedCents, computed straight from the count.
   function checkinUpdates(
     ticket: TicketRecord,
     nextCount: number
@@ -104,8 +104,8 @@ export default function CheckinBoard({
     const updates: { checkedInCount: number; paid?: boolean } = {
       checkedInCount: nextCount,
     };
-    if (nextCount >= ticket.quantity && ticket.paymentMethod === "Cash" && !ticket.paid) {
-      updates.paid = true;
+    if (ticket.paymentMethod === "Cash") {
+      updates.paid = nextCount >= ticket.quantity;
     }
     return updates;
   }
@@ -125,7 +125,7 @@ export default function CheckinBoard({
 
   function decrementCheckedIn(ticket: TicketRecord) {
     if (ticket.checkedInCount <= 0) return;
-    sendMark(ticket.id, { checkedInCount: ticket.checkedInCount - 1 });
+    sendMark(ticket.id, checkinUpdates(ticket, ticket.checkedInCount - 1));
   }
 
   const filtered = useMemo(() => {
@@ -282,19 +282,6 @@ export default function CheckinBoard({
                   {t.contactEmail ? ` · ${t.contactEmail}` : ""}
                 </div>
               </div>
-
-              {t.paymentMethod === "Cash" && (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (!isPending) sendMark(t.id, { paid: !t.paid });
-                  }}
-                  disabled={isPending}
-                  className="shrink-0 whitespace-nowrap text-xs font-medium text-sasa-neutral-500 underline decoration-dotted disabled:opacity-50"
-                >
-                  Mark {t.paid ? "unpaid" : "paid"}
-                </button>
-              )}
 
               {isSingle ? (
                 <span

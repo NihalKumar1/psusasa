@@ -421,7 +421,10 @@ export default function TicketPurchaseForm({
                   <strong>No cash, no entry.</strong> You&apos;ll be on the
                   door list, but you must pay in full with cash at the door
                   to be let in. Exact change is recommended — we can&apos;t
-                  guarantee change will be available at the door.
+                  guarantee change will be available at the door. If the
+                  event reaches capacity before you arrive, entry is not
+                  guaranteed for cash orders — card purchases are confirmed
+                  in advance.
                 </p>
               </div>
             )}
@@ -582,7 +585,10 @@ export default function TicketPurchaseForm({
                 <p className="text-xs font-semibold text-amber-800">
                   No cash, no entry — you will not be admitted without
                   payment. Exact change is recommended; we can&apos;t
-                  guarantee change will be available at the door.
+                  guarantee change will be available at the door. If the
+                  event reaches capacity before you arrive, entry is not
+                  guaranteed for cash orders — card purchases are confirmed
+                  in advance.
                 </p>
               </div>
             </div>
