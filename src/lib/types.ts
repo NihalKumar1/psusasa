@@ -20,6 +20,15 @@ export interface SanityEventCategory {
   color: string;
 }
 
+export interface TicketType {
+  _key: string;
+  name: string;
+  memberPriceCents: number;
+  nonMemberPriceCents: number;
+  capacity?: number;
+  salesOpen: boolean;
+}
+
 export interface SanityEvent {
   _id: string;
   _updatedAt?: string;
@@ -34,6 +43,8 @@ export interface SanityEvent {
   coverImage: SanityImageSource;
   category: SanityEventCategory | null;
   isFeatured: boolean;
+  ticketingEnabled?: boolean;
+  ticketTypes?: TicketType[];
 }
 
 export interface Officer {

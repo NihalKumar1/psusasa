@@ -38,6 +38,44 @@ export async function lookupPastMember(
   return !!(data.records && data.records.length > 0);
 }
 
+// Every row in the "Members" table is treated as a currently valid member —
+// no term/year scoping. Unlike lookupPastMember (a low-stakes discount check
+// that fails open), this decides an actual charge amount, so a lookup
+// failure falls back to non-member pricing rather than a free discount.
+export async function lookupCurrentMember(psuEmail: string): Promise<boolean> {
+  const tableName = process.env.AIRTABLE_TABLE_NAME ?? "Members";
+  const baseUrl = `https://api.airtable.com/v0/${process.env.AIRTABLE_BASE_ID}/${encodeURIComponent(tableName)}`;
+
+  const email = psuEmail.trim().toLowerCase();
+  if (!email) return false;
+
+  const formula = `LOWER(TRIM({PSU Email})) = '${escapeForAirtableFormula(email)}'`;
+
+  let res: Response;
+  try {
+    res = await fetch(
+      `${baseUrl}?filterByFormula=${encodeURIComponent(formula)}&maxRecords=1`,
+      {
+        headers: { Authorization: `Bearer ${process.env.AIRTABLE_API_KEY}` },
+        cache: "no-store",
+      }
+    );
+  } catch (err) {
+    console.error("Members lookup request failed:", err);
+    return false;
+  }
+
+  if (!res.ok) {
+    console.error(
+      `Members lookup failed: ${res.status} ${await res.text()}`
+    );
+    return false;
+  }
+
+  const data = (await res.json()) as { records?: unknown[] };
+  return !!(data.records && data.records.length > 0);
+}
+
 export async function appendMemberToAirtable(
   metadata: Record<string, string>,
   paymentIntentId: string
@@ -108,4 +146,272 @@ export async function appendMemberToAirtable(
   }
 
   console.log(`Member ${metadata.psuEmail} added to Airtable`);
+}
+
+// --- Tickets table -----------------------------------------------------------
+
+interface AirtableRecord {
+  id: string;
+  fields: Record<string, unknown>;
+}
+
+// Airtable's list API caps each page at 100 records. Ticket counts/lists
+// must walk the `offset` cursor until exhausted, or they'll silently
+// under-report once an event passes 100 orders.
+async function fetchAllAirtableRecords(
+  baseUrl: string,
+  formula: string
+): Promise<AirtableRecord[]> {
+  const records: AirtableRecord[] = [];
+  let offset: string | undefined;
+
+  do {
+    const params = new URLSearchParams({ filterByFormula: formula, pageSize: "100" });
+    if (offset) params.set("offset", offset);
+
+    const res = await fetch(`${baseUrl}?${params.toString()}`, {
+      headers: { Authorization: `Bearer ${process.env.AIRTABLE_API_KEY}` },
+      cache: "no-store",
+    });
+
+    if (!res.ok) {
+      throw new Error(`Airtable list error: ${res.status} ${await res.text()}`);
+    }
+
+    const data = (await res.json()) as {
+      records?: AirtableRecord[];
+      offset?: string;
+    };
+    records.push(...(data.records ?? []));
+    offset = data.offset;
+  } while (offset);
+
+  return records;
+}
+
+function ticketsBaseUrl(): string {
+  const tableName = process.env.AIRTABLE_TICKETS_TABLE_NAME ?? "Tickets";
+  return `https://api.airtable.com/v0/${process.env.AIRTABLE_BASE_ID}/${encodeURIComponent(tableName)}`;
+}
+
+export interface TicketOrderMetadata {
+  firstName: string;
+  lastName: string;
+  contactEmail: string;
+  psuEmail: string;
+  isMember: boolean;
+  eventId: string;
+  eventName: string;
+  ticketTypeKey: string;
+  ticketTypeName: string;
+  quantity: number;
+  amountPaidCents: number;
+  paymentMethod: "Card" | "Cash";
+  paid: boolean;
+}
+
+// Used by both the webhook (card orders) and the cash-order route. Card
+// orders pass their Stripe Payment Intent ID and dedupe against it, the
+// same way appendMemberToAirtable does. Cash orders have no PaymentIntent —
+// each cash API call is a single synchronous write with no retry/webhook
+// redelivery to dedupe against, so it always inserts.
+// Returns whether this call actually inserted a new row (vs. hitting the
+// dedupe check) — the webhook and the /return page both call this for the
+// same card order, and callers use `inserted` to make sure a confirmation
+// email only goes out once, from whichever of the two wins the race.
+export async function appendTicketToAirtable(
+  order: TicketOrderMetadata,
+  paymentIntentId: string | null
+): Promise<{ inserted: boolean }> {
+  const baseUrl = ticketsBaseUrl();
+
+  if (paymentIntentId) {
+    const filter = encodeURIComponent(
+      `{Stripe Payment Intent ID} = '${paymentIntentId}'`
+    );
+    const lookup = await fetch(`${baseUrl}?filterByFormula=${filter}&maxRecords=1`, {
+      headers: { Authorization: `Bearer ${process.env.AIRTABLE_API_KEY}` },
+      cache: "no-store",
+    });
+    if (lookup.ok) {
+      const data = (await lookup.json()) as { records?: unknown[] };
+      if (data.records && data.records.length > 0) {
+        console.log(`Ticket order already in Airtable (${paymentIntentId})`);
+        return { inserted: false };
+      }
+    }
+  }
+
+  const res = await fetch(baseUrl, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${process.env.AIRTABLE_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      fields: {
+        Timestamp: new Date().toISOString(),
+        "First Name": order.firstName,
+        "Last Name": order.lastName,
+        "Contact Email": order.contactEmail,
+        "PSU Email": order.psuEmail,
+        "Is Member": order.isMember,
+        "Event ID": order.eventId,
+        "Event Name": order.eventName,
+        "Ticket Type Key": order.ticketTypeKey,
+        "Ticket Type Name": order.ticketTypeName,
+        Quantity: order.quantity,
+        "Amount Paid": order.amountPaidCents / 100,
+        "Payment Method": order.paymentMethod,
+        Paid: order.paid,
+        "Stripe Payment Intent ID": paymentIntentId ?? "",
+        "Checked In Count": 0,
+      },
+    }),
+  });
+
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Airtable error: ${res.status} ${body}`);
+  }
+
+  console.log(`Ticket order for ${order.contactEmail} added to Airtable`);
+  return { inserted: true };
+}
+
+async function sumTicketQuantity(formula: string): Promise<number> {
+  const records = await fetchAllAirtableRecords(ticketsBaseUrl(), formula);
+  return records.reduce((sum, r) => {
+    const qty = Number(r.fields["Quantity"]);
+    return sum + (Number.isFinite(qty) ? qty : 0);
+  }, 0);
+}
+
+// Counts every order for this ticket type regardless of Paid status — an
+// unpaid cash order still reserves a capacity slot the moment it's placed.
+export async function sumSoldTicketQuantity(
+  eventId: string,
+  ticketTypeKey: string
+): Promise<number> {
+  const formula = `AND({Event ID} = '${escapeForAirtableFormula(eventId)}', {Ticket Type Key} = '${escapeForAirtableFormula(ticketTypeKey)}')`;
+  return sumTicketQuantity(formula);
+}
+
+// A person gets member pricing on at most 1 ticket per event, ever —
+// checked across ALL their past orders for this event (any ticket type),
+// so they can't dodge the cap by checking out multiple times or mixing
+// ticket types. Existence check, not a sum: appendTicketToAirtable never
+// writes more than 1 member-priced unit into a single row (see
+// resolveTicketOrder), so any matching row means the allowance is used.
+export async function hasUsedMemberPricing(
+  eventId: string,
+  psuEmail: string
+): Promise<boolean> {
+  const email = psuEmail.trim().toLowerCase();
+  if (!email) return false;
+  const formula = `AND({Event ID} = '${escapeForAirtableFormula(eventId)}', LOWER(TRIM({PSU Email})) = '${escapeForAirtableFormula(email)}', {Is Member} = TRUE())`;
+  const records = await fetchAllAirtableRecords(ticketsBaseUrl(), formula);
+  return records.length > 0;
+}
+
+export interface TicketRecord {
+  id: string;
+  firstName: string;
+  lastName: string;
+  contactEmail: string;
+  psuEmail: string;
+  isMember: boolean;
+  ticketTypeKey: string;
+  ticketTypeName: string;
+  quantity: number;
+  amountPaidCents: number;
+  paymentMethod: "Card" | "Cash";
+  paid: boolean;
+  /** How many of this order's `quantity` seats have been checked in — 0 to quantity. */
+  checkedInCount: number;
+  checkedInAt: string | null;
+}
+
+export async function listTicketsForEvent(
+  eventId: string
+): Promise<TicketRecord[]> {
+  const formula = `{Event ID} = '${escapeForAirtableFormula(eventId)}'`;
+  const records = await fetchAllAirtableRecords(ticketsBaseUrl(), formula);
+
+  return records.map((r): TicketRecord => {
+    const f = r.fields;
+    const paymentMethod: "Card" | "Cash" =
+      f["Payment Method"] === "Cash" ? "Cash" : "Card";
+    return {
+      id: r.id,
+      firstName: String(f["First Name"] ?? ""),
+      lastName: String(f["Last Name"] ?? ""),
+      contactEmail: String(f["Contact Email"] ?? ""),
+      psuEmail: String(f["PSU Email"] ?? ""),
+      isMember: Boolean(f["Is Member"]),
+      ticketTypeKey: String(f["Ticket Type Key"] ?? ""),
+      ticketTypeName: String(f["Ticket Type Name"] ?? ""),
+      quantity: Number(f["Quantity"]) || 0,
+      amountPaidCents: Math.round((Number(f["Amount Paid"]) || 0) * 100),
+      paymentMethod,
+      paid: Boolean(f["Paid"]),
+      checkedInCount: Number(f["Checked In Count"]) || 0,
+      checkedInAt: f["Checked In At"] ? String(f["Checked In At"]) : null,
+    };
+  });
+}
+
+export interface TicketRecordInfo {
+  eventId: string;
+  quantity: number;
+}
+
+// Used by the check-in mark route to confirm a record actually belongs to
+// the event the caller is authorized for (before allowing any update to
+// it) and to clamp checkedInCount to a valid range for that order.
+export async function getTicketRecordInfo(
+  recordId: string
+): Promise<TicketRecordInfo | null> {
+  const res = await fetch(`${ticketsBaseUrl()}/${recordId}`, {
+    headers: { Authorization: `Bearer ${process.env.AIRTABLE_API_KEY}` },
+    cache: "no-store",
+  });
+  if (!res.ok) return null;
+  const data = (await res.json()) as { fields?: Record<string, unknown> };
+  const eventId = data.fields?.["Event ID"];
+  if (typeof eventId !== "string") return null;
+  const quantity = Number(data.fields?.["Quantity"]);
+  return { eventId, quantity: Number.isFinite(quantity) ? quantity : 0 };
+}
+
+// Single PATCH for the door check-in board: a normal tap only ever sends
+// `checkedInCount`, but collecting cash at the door sends both `paid` and
+// `checkedInCount` together so the two facts land in one atomic update.
+export async function updateTicketCheckinState(
+  recordId: string,
+  updates: { checkedInCount?: number; paid?: boolean }
+): Promise<void> {
+  const fields: Record<string, unknown> = {};
+  if (updates.checkedInCount !== undefined) {
+    fields["Checked In Count"] = updates.checkedInCount;
+    fields["Checked In At"] =
+      updates.checkedInCount > 0 ? new Date().toISOString() : null;
+  }
+  if (updates.paid !== undefined) {
+    fields["Paid"] = updates.paid;
+  }
+
+  const res = await fetch(`${ticketsBaseUrl()}/${recordId}`, {
+    method: "PATCH",
+    headers: {
+      Authorization: `Bearer ${process.env.AIRTABLE_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ fields }),
+  });
+
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Airtable update error: ${res.status} ${body}`);
+  }
 }

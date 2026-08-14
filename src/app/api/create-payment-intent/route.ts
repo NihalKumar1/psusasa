@@ -83,6 +83,7 @@ export async function POST(req: NextRequest) {
     const { feeCents, totalCents: amount } = computeCardFee(baseAmount);
 
     const metadata: Record<string, string> = {
+      purchaseType: "membership",
       firstName: String(firstName ?? "").slice(0, 500),
       lastName: String(lastName ?? "").slice(0, 500),
       psuEmail: String(psuEmail ?? "").slice(0, 500),

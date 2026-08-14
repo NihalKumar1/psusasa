@@ -36,10 +36,11 @@ NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_test_or_live_...
 STRIPE_SECRET_KEY=sk_test_or_live_...
 STRIPE_WEBHOOK_SECRET=whsec_...
 
-# Airtable (member roster)
+# Airtable (member roster + ticketing)
 AIRTABLE_API_KEY=pat...
 AIRTABLE_BASE_ID=app...
 AIRTABLE_TABLE_NAME=Members  # optional, defaults to "Members"
+AIRTABLE_TICKETS_TABLE_NAME=Tickets  # optional, defaults to "Tickets"
 
 # GroupMe (auto-add new members to the group chat)
 GROUPME_ACCESS_TOKEN=...
@@ -48,6 +49,10 @@ GROUPME_GROUP_ID=...
 # Resend (admin notification email when GroupMe auto-add falls through)
 RESEND_API_KEY=re_...
 ADMIN_NOTIFICATION_EMAIL=exec.psusasa@gmail.com
+
+# Door check-in tool (/checkin) — signs session cookies; each event's actual
+# door password is set per-event in Studio, not here
+CHECKIN_SESSION_SECRET=a_long_random_string
 ```
 
 To get your Sanity project ID:
@@ -55,7 +60,7 @@ To get your Sanity project ID:
 2. Create a new project (or use an existing one)
 3. Copy the Project ID from the project settings
 
-> **Note:** Sanity, Stripe webhook secret, and Resend can be skipped for read-only local browsing of pre-existing content, but anything involving the `/join` flow (membership form, payment, post-payment redirect) requires the full Stripe + Airtable + GroupMe stack to work end-to-end.
+> **Note:** Sanity, Stripe webhook secret, and Resend can be skipped for read-only local browsing of pre-existing content, but anything involving the `/join` flow (membership form, payment, post-payment redirect) requires the full Stripe + Airtable + GroupMe stack to work end-to-end. Same goes for the ticketing flow (`/events/[slug]/tickets`) and the `/checkin` door tool — both need Stripe + Airtable configured, and `/checkin` additionally needs `CHECKIN_SESSION_SECRET` set.
 
 ### 3. Run the development server
 
@@ -78,15 +83,28 @@ src/
       about/page.tsx
       events/page.tsx
       events/[slug]/page.tsx
+      events/[slug]/tickets/page.tsx        # Ticket purchase form
+      events/[slug]/tickets/return/page.tsx # Post-payment success / pending / error (card orders)
       eboard/page.tsx
       gallery/page.tsx
       join/page.tsx
       join/return/page.tsx            # Post-payment success / pending / error
+    checkin/                          # Staff-only door check-in tool (no public chrome)
+      layout.tsx
+      page.tsx                        # Event picker (unauthenticated)
+      [eventId]/login/page.tsx        # Per-event password login
+      [eventId]/page.tsx              # Searchable check-in board
     studio/[[...tool]]/page.tsx       # Embedded Sanity Studio
     api/
-      revalidate/route.ts             # Sanity webhook -> revalidatePath
-      create-payment-intent/route.ts  # Stripe PaymentIntent for membership
-      stripe-webhook/route.ts         # Stripe webhook -> Airtable + GroupMe
+      revalidate/route.ts                    # Sanity webhook -> revalidatePath
+      create-payment-intent/route.ts         # Stripe PaymentIntent for membership
+      create-ticket-payment-intent/route.ts  # Stripe PaymentIntent for tickets (card)
+      create-cash-ticket-order/route.ts      # Ticket order paid cash at the door
+      stripe-webhook/route.ts                # Stripe webhook -> Airtable (+ GroupMe for memberships)
+      checkin-login/route.ts                 # Door tool: verify per-event password, set session
+      checkin-logout/route.ts
+      checkin/[eventId]/tickets/route.ts     # Door tool: list orders for an event
+      checkin/[eventId]/mark/route.ts        # Door tool: toggle checked-in / paid
   components/
     layout/     # Navbar, Footer
     shared/     # SectionHeading, Button, EventCard
@@ -96,19 +114,25 @@ src/
     eboard/     # OfficerCard
     gallery/    # GalleryGrid, ImageLightbox
     join/       # MembershipForm, ClearSavedForm
+    tickets/    # TicketPurchaseForm
+    checkin/    # CheckinBoard, CheckinLoginForm, LogoutButton
   lib/
-    types.ts    # TypeScript interfaces
-    airtable.ts # Append member rows to Airtable
-    groupme.ts  # Auto-add member to GroupMe (+ admin email fallback)
+    types.ts       # TypeScript interfaces
+    airtable.ts    # Members + Tickets tables (Airtable REST API)
+    ticketing.ts   # Shared ticket-order validation/pricing (used by both purchase routes)
+    checkinAuth.ts # Door tool session signing (Web Crypto — Edge + Node compatible)
+    groupme.ts     # Auto-add member to GroupMe (+ admin email fallback)
+middleware.ts # Gates /checkin/[eventId] + /api/checkin/[eventId]/* per-event
 sanity/
   lib/
     client.ts   # Sanity client
     image.ts    # Image URL builder
     queries.ts  # All GROQ queries
     types.ts    # TypeScript interfaces for Sanity content
-  schemas/      # event, eventCategory, officer, galleryImage, announcement,
-                # siteSettings, homePage, aboutPage, joinPage,
-                # membershipFormCopy, membershipConfirmation, notFoundPage
+  schemas/      # event (incl. ticketTypes[] + checkinPassword), eventCategory,
+                # officer, galleryImage, announcement, siteSettings, homePage,
+                # aboutPage, joinPage, membershipFormCopy,
+                # membershipConfirmation, notFoundPage
   structure.ts  # Studio sidebar layout (singletons vs collections)
 sanity.config.ts
 ```
@@ -145,7 +169,28 @@ These docs control text, hero copy, CTAs, and form labels across the site. Each 
    - **Cover Image** — upload a photo (recommended: 1200x750px)
    - **Category** — select one: Cultural Show, Festival, Social, THON, or Community Service
    - **Featured** — toggle on to show on the home page (up to 3 featured events display)
+   - **Ticketing Enabled** — toggle on to sell tickets for this event (see below)
 4. Click **Publish**
+
+### Selling Tickets & Door Check-In
+
+Replaces Doorlist. Current SASA members automatically get a cheaper (or free) price, verified by PSU email against the Members Airtable table at checkout.
+
+**Setting up ticket sales for an event:**
+
+1. Open the event in **Studio > Event** and toggle **Ticketing Enabled**
+2. Under **Ticket Types**, add one entry per tier (e.g. "General Admission", "VIP"), each with its own **Member Price** and **Non-Member Price** (in cents), an optional **Capacity**, and **Sales Open**
+3. Set a **Door Check-In Password** for this event — staff use it at `/checkin` on the night of the event. Studio will warn (but not block) if this is left blank while ticketing is on
+4. Click **Publish** — a "Buy Tickets" button now appears on the event's page, linking to `/events/[slug]/tickets`
+
+Buyers can pay by card (Stripe, same-session) or choose "pay cash at the door," which reserves their spot and shows as due on the check-in board.
+
+**Running the door on event night:**
+
+1. Go to `psusasa.com/checkin`, pick the event, and enter that event's check-in password (each event has its own — a password only unlocks its own event)
+2. Search by name or email, tap an order to check it in — tap again to undo
+3. Cash orders show a "Cash due" badge; tapping one prompts you to confirm you collected the cash before it checks them in
+4. Multiple staff/devices can work the same board at once — check-ins sync across devices every ~3 seconds
 
 ### Updating Officers / E-Board
 
