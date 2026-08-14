@@ -17,16 +17,19 @@ export const client = projectId
     })
   : null;
 
+// next-sanity/@sanity/client defaults an un-annotated .fetch() call to
+// `cache: "force-cache"` on Next.js 14 — a separate layer from Sanity's own
+// CDN, and one that persists across deployments on Vercel. Pass `no-store`
+// explicitly on every call so this app is never caching stale Sanity data
+// at any layer, not just the ones we already knew about.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function sanityFetch<T>(query: string, params?: Record<string, any>): Promise<T[]> {
   if (!client) return [] as unknown as T[];
-  if (params) return client.fetch<T[]>(query, params);
-  return client.fetch<T[]>(query);
+  return client.fetch<T[]>(query, params ?? {}, { cache: "no-store" });
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function sanityFetchSingle<T>(query: string, params?: Record<string, any>): Promise<T | null> {
   if (!client) return null;
-  if (params) return client.fetch<T | null>(query, params);
-  return client.fetch<T | null>(query);
+  return client.fetch<T | null>(query, params ?? {}, { cache: "no-store" });
 }
