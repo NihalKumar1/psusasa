@@ -9,7 +9,10 @@ export const client = projectId
       projectId,
       dataset,
       apiVersion,
-      useCdn: process.env.NODE_ENV === "production",
+      // TEMPORARY: CDN disabled to diagnose /checkin not showing a
+      // published event. Revert to `process.env.NODE_ENV === "production"`
+      // once confirmed either way.
+      useCdn: false,
     })
   : null;
 
