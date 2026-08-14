@@ -9,7 +9,11 @@ export const client = projectId
       projectId,
       dataset,
       apiVersion,
-      useCdn: process.env.NODE_ENV === "production",
+      // Deliberately never use Sanity's CDN. It's fine for latency/cost, but
+      // its cache can lag well behind a publish, which is unacceptable for
+      // ticketing/check-in data (is ticketing on, current password, live
+      // capacity) — confirmed in practice, not just theoretical.
+      useCdn: false,
     })
   : null;
 
