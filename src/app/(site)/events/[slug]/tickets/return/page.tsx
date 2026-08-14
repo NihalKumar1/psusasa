@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import Stripe from "stripe";
 import { appendTicketToAirtable } from "@/lib/airtable";
+import { sendTicketConfirmationEmail } from "@/lib/ticketEmail";
 
 export const metadata: Metadata = {
   title: "Tickets | SASA at Penn State",
@@ -58,7 +59,7 @@ export default async function TicketsReturnPage({
 
   if (isComplete) {
     try {
-      await appendTicketToAirtable(
+      const { inserted } = await appendTicketToAirtable(
         {
           firstName: m.firstName ?? "",
           lastName: m.lastName ?? "",
@@ -76,6 +77,20 @@ export default async function TicketsReturnPage({
         },
         paymentIntent!.id
       );
+
+      // Only the write that actually lands sends the email — the webhook
+      // and this page both call appendTicketToAirtable for the same order,
+      // and `inserted` is false for whichever one loses the race.
+      if (inserted) {
+        await sendTicketConfirmationEmail({
+          contactEmail: m.contactEmail ?? "",
+          firstName: m.firstName ?? "",
+          eventName,
+          ticketTypeName,
+          quantity,
+          amountPaidCents: amountCents,
+        });
+      }
     } catch (err) {
       console.error("Ticket Airtable write failed:", err);
     }

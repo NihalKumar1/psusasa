@@ -2,6 +2,7 @@ import Stripe from "stripe";
 import { NextRequest, NextResponse } from "next/server";
 import { appendMemberToAirtable, appendTicketToAirtable } from "@/lib/airtable";
 import { addMemberToGroupMe } from "@/lib/groupme";
+import { sendTicketConfirmationEmail } from "@/lib/ticketEmail";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -41,7 +42,11 @@ export async function POST(req: NextRequest) {
       const metadata = paymentIntent.metadata;
 
       if (metadata?.purchaseType === "ticket") {
-        await appendTicketToAirtable(
+        const eventName = metadata.eventName ?? "";
+        const ticketTypeName = metadata.ticketTypeName ?? "";
+        const quantity = Number(metadata.quantity) || 1;
+
+        const { inserted } = await appendTicketToAirtable(
           {
             firstName: metadata.firstName ?? "",
             lastName: metadata.lastName ?? "",
@@ -49,16 +54,30 @@ export async function POST(req: NextRequest) {
             psuEmail: metadata.psuEmail ?? "",
             isMember: metadata.isMember === "true",
             eventId: metadata.eventId ?? "",
-            eventName: metadata.eventName ?? "",
+            eventName,
             ticketTypeKey: metadata.ticketTypeKey ?? "",
-            ticketTypeName: metadata.ticketTypeName ?? "",
-            quantity: Number(metadata.quantity) || 1,
+            ticketTypeName,
+            quantity,
             amountPaidCents: paymentIntent.amount,
             paymentMethod: "Card",
             paid: true,
           },
           paymentIntent.id
         );
+
+        // Only the write that actually lands sends the email — the webhook
+        // and the /return page both call appendTicketToAirtable for the
+        // same order, and `inserted` is false for whichever one loses the race.
+        if (inserted) {
+          await sendTicketConfirmationEmail({
+            contactEmail: metadata.contactEmail ?? "",
+            firstName: metadata.firstName ?? "",
+            eventName,
+            ticketTypeName,
+            quantity,
+            amountPaidCents: paymentIntent.amount,
+          });
+        }
       } else if (metadata) {
         await appendMemberToAirtable(metadata, paymentIntent.id);
         // Transfer students are added to GroupMe manually after admin

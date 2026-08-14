@@ -73,6 +73,11 @@ export default function TicketPurchaseForm({
   const [contactEmail, setContactEmail] = useState("");
   const [psuEmail, setPsuEmail] = useState("");
   const [psuEmailWarning, setPsuEmailWarning] = useState<string | null>(null);
+  const [memberPricingCheck, setMemberPricingCheck] = useState<{
+    isMember: boolean;
+    alreadyUsed: boolean;
+  } | null>(null);
+  const [checkingMemberPricing, setCheckingMemberPricing] = useState(false);
   const [ticketTypeKey, setTicketTypeKey] = useState(purchasable[0]?._key ?? "");
   const [additionalQuantity, setAdditionalQuantity] = useState(0);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("card");
@@ -110,13 +115,17 @@ export default function TicketPurchaseForm({
     setAdditionalQuantity((q) => Math.min(q, maxAdditionalQuantity));
   }, [maxAdditionalQuantity]);
 
-  // Estimate only — whether this PSU email actually resolves to a current
-  // member (and whether they've already used their one discount for this
-  // event) is only known server-side. The real price is always confirmed
-  // in step 2 from the server response, this just gives a rough preview.
+  // Estimate only — the real price is always confirmed in step 2 from the
+  // server response. Before the live check resolves (or if it fails), this
+  // falls back to a format-only guess; once it resolves, it's authoritative
+  // over the guess, since it also knows whether this email already used its
+  // one member-priced ticket for this event, which the format check can't.
   const psuEmailLooksLikeMember = /^[^\s@]+@psu\.edu$/i.test(psuEmail.trim());
+  const eligibleForMemberPrice = memberPricingCheck
+    ? memberPricingCheck.isMember && !memberPricingCheck.alreadyUsed
+    : psuEmailLooksLikeMember;
   const estimatedOwnUnitCents = selectedType
-    ? psuEmailLooksLikeMember
+    ? eligibleForMemberPrice
       ? selectedType.memberPriceCents
       : selectedType.nonMemberPriceCents
     : 0;
@@ -327,21 +336,68 @@ export default function TicketPurchaseForm({
                 <input
                   type="email"
                   value={psuEmail}
-                  onChange={(e) => setPsuEmail(e.target.value)}
-                  onBlur={() => {
+                  onChange={(e) => {
+                    setPsuEmail(e.target.value);
+                    // Invalidate the last live check — it was for a
+                    // different email, so the estimate falls back to the
+                    // format-only guess until the field is blurred again.
+                    setMemberPricingCheck(null);
+                  }}
+                  onBlur={async () => {
                     const trimmed = psuEmail.trim();
+                    const looksValid = /^[^\s@]+@psu\.edu$/i.test(trimmed);
                     setPsuEmailWarning(
-                      trimmed && !/^[^\s@]+@psu\.edu$/i.test(trimmed)
+                      trimmed && !looksValid
                         ? "That doesn't look like a @psu.edu address — you'll be charged the non-member price unless you fix it."
                         : null
                     );
+
+                    if (!looksValid) {
+                      setMemberPricingCheck(null);
+                      return;
+                    }
+
+                    setCheckingMemberPricing(true);
+                    try {
+                      const res = await fetch("/api/check-member-pricing", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ eventId, psuEmail: trimmed }),
+                      });
+                      const data = await res.json();
+                      if (res.ok) {
+                        setMemberPricingCheck({
+                          isMember: !!data.isMember,
+                          alreadyUsed: !!data.alreadyUsed,
+                        });
+                      }
+                    } catch {
+                      // Silent — the estimate just falls back to the
+                      // format-only guess. Doesn't block the buyer.
+                    } finally {
+                      setCheckingMemberPricing(false);
+                    }
                   }}
                   placeholder="you@psu.edu"
                   className="w-full rounded border border-gray-300 px-3 py-2 text-sm focus:border-sasa-red-900 focus:outline-none focus:ring-1 focus:ring-sasa-red-900"
                 />
+                {checkingMemberPricing && (
+                  <p className="mt-1 text-xs text-sasa-neutral-400">
+                    Checking membership status...
+                  </p>
+                )}
                 {psuEmailWarning && (
                   <p className="mt-1 text-xs text-amber-600">{psuEmailWarning}</p>
                 )}
+                {!psuEmailWarning &&
+                  memberPricingCheck?.isMember &&
+                  memberPricingCheck.alreadyUsed && (
+                    <p className="mt-1 text-xs text-amber-600">
+                      Your member-priced ticket for this event has already
+                      been purchased — additional tickets are charged the
+                      non-member price.
+                    </p>
+                  )}
               </div>
 
               <div>
@@ -586,7 +642,7 @@ export default function TicketPurchaseForm({
               <div className="flex items-baseline justify-between text-sm">
                 <span className="text-sasa-neutral-500">
                   Your ticket (
-                  {psuEmailLooksLikeMember ? "member" : "non-member"} price)
+                  {eligibleForMemberPrice ? "member" : "non-member"} price)
                 </span>
                 <span>{formatPrice(estimatedOwnUnitCents)}</span>
               </div>

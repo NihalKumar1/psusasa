@@ -215,10 +215,14 @@ export interface TicketOrderMetadata {
 // same way appendMemberToAirtable does. Cash orders have no PaymentIntent —
 // each cash API call is a single synchronous write with no retry/webhook
 // redelivery to dedupe against, so it always inserts.
+// Returns whether this call actually inserted a new row (vs. hitting the
+// dedupe check) — the webhook and the /return page both call this for the
+// same card order, and callers use `inserted` to make sure a confirmation
+// email only goes out once, from whichever of the two wins the race.
 export async function appendTicketToAirtable(
   order: TicketOrderMetadata,
   paymentIntentId: string | null
-) {
+): Promise<{ inserted: boolean }> {
   const baseUrl = ticketsBaseUrl();
 
   if (paymentIntentId) {
@@ -233,7 +237,7 @@ export async function appendTicketToAirtable(
       const data = (await lookup.json()) as { records?: unknown[] };
       if (data.records && data.records.length > 0) {
         console.log(`Ticket order already in Airtable (${paymentIntentId})`);
-        return;
+        return { inserted: false };
       }
     }
   }
@@ -272,6 +276,7 @@ export async function appendTicketToAirtable(
   }
 
   console.log(`Ticket order for ${order.contactEmail} added to Airtable`);
+  return { inserted: true };
 }
 
 async function sumTicketQuantity(formula: string): Promise<number> {
