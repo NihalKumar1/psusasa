@@ -30,7 +30,11 @@ export async function middleware(req: NextRequest) {
     return NextResponse.json({ error: "Not authorized" }, { status: 401 });
   }
 
-  return NextResponse.redirect(new URL(`/checkin/${eventId}/login`, req.url));
+  // TEMP diagnostic — remove once the post-login redirect issue is found.
+  const reason = !token ? "no_cookie" : authorizedEvents.length === 0 ? "invalid_token" : "wrong_event";
+  const redirectUrl = new URL(`/checkin/${eventId}/login`, req.url);
+  redirectUrl.searchParams.set("debug", reason);
+  return NextResponse.redirect(redirectUrl);
 }
 
 export const config = {

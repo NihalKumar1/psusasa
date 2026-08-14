@@ -1,14 +1,12 @@
 "use client";
 
 import React, { useState } from "react";
-import { useRouter } from "next/navigation";
 
 interface CheckinLoginFormProps {
   eventId: string;
 }
 
 export default function CheckinLoginForm({ eventId }: CheckinLoginFormProps) {
-  const router = useRouter();
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -29,7 +27,10 @@ export default function CheckinLoginForm({ eventId }: CheckinLoginFormProps) {
         setLoading(false);
         return;
       }
-      router.push(`/checkin/${eventId}`);
+      // Hard navigation on purpose — this is an auth boundary, so a full
+      // request (fresh middleware check, no client router cache) is safer
+      // than a soft client-side transition here.
+      window.location.href = `/checkin/${eventId}`;
     } catch {
       setError("Login failed. Please try again.");
       setLoading(false);
