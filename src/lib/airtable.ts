@@ -76,6 +76,12 @@ export async function lookupCurrentMember(psuEmail: string): Promise<boolean> {
   return !!(data.records && data.records.length > 0);
 }
 
+// The webhook and the /join/return page both call this for the same
+// signup, fired independently within moments of each other. A separate
+// "look up, then insert if missing" pair of requests is not atomic and
+// lets both calls pass the check before either insert lands — Airtable's
+// upsert does the match-or-create as one atomic server-side operation,
+// so no duplicate row can be created no matter how the two calls overlap.
 export async function appendMemberToAirtable(
   metadata: Record<string, string>,
   paymentIntentId: string
@@ -83,60 +89,41 @@ export async function appendMemberToAirtable(
   const tableName = process.env.AIRTABLE_TABLE_NAME ?? "Members";
   const baseUrl = `https://api.airtable.com/v0/${process.env.AIRTABLE_BASE_ID}/${encodeURIComponent(tableName)}`;
 
-  // Skip if a record with this Stripe Payment Intent ID already exists.
-  const filter = encodeURIComponent(
-    `{Stripe Payment Intent ID} = '${paymentIntentId}'`
-  );
-  const lookup = await fetch(
-    `${baseUrl}?filterByFormula=${filter}&maxRecords=1`,
-    {
-      headers: {
-        Authorization: `Bearer ${process.env.AIRTABLE_API_KEY}`,
-      },
-      cache: "no-store",
-    }
-  );
-
-  if (lookup.ok) {
-    const data = (await lookup.json()) as { records?: unknown[] };
-    if (data.records && data.records.length > 0) {
-      console.log(
-        `Member ${metadata.psuEmail} already in Airtable (${paymentIntentId})`
-      );
-      return;
-    }
-  }
-
   const amountPaidCents = Number(metadata.amountPaidCents);
   const amountPaidDollars = Number.isFinite(amountPaidCents)
     ? amountPaidCents / 100
     : null;
 
   const res = await fetch(baseUrl, {
-    method: "POST",
+    method: "PATCH",
     headers: {
       Authorization: `Bearer ${process.env.AIRTABLE_API_KEY}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      fields: {
-        Timestamp: new Date().toISOString(),
-        "First Name": metadata.firstName,
-        "Last Name": metadata.lastName,
-        "PSU Email": metadata.psuEmail,
-        Phone: metadata.phone,
-        Year: metadata.year,
-        "Membership Type": metadata.membershipTier ?? metadata.membershipType,
-        "Amount Paid": amountPaidDollars,
-        Major: metadata.major,
-        Hometown: metadata.hometown,
-        Gender: metadata.gender,
-        Religion: metadata.religion,
-        Identity: metadata.identity,
-        Generation: metadata.generation,
-        Instagram: metadata.instagram,
-        "Stripe Payment Intent ID": paymentIntentId,
-      },
+      performUpsert: { fieldsToMergeOn: ["Stripe Payment Intent ID"] },
+      records: [
+        {
+          fields: {
+            Timestamp: new Date().toISOString(),
+            "First Name": metadata.firstName,
+            "Last Name": metadata.lastName,
+            "PSU Email": metadata.psuEmail,
+            Phone: metadata.phone,
+            Year: metadata.year,
+            "Membership Type": metadata.membershipTier ?? metadata.membershipType,
+            "Amount Paid": amountPaidDollars,
+            Major: metadata.major,
+            Hometown: metadata.hometown,
+            Gender: metadata.gender,
+            Religion: metadata.religion,
+            Identity: metadata.identity,
+            Generation: metadata.generation,
+            Instagram: metadata.instagram,
+            "Stripe Payment Intent ID": paymentIntentId,
+          },
+        },
+      ],
     }),
   });
 
@@ -145,7 +132,7 @@ export async function appendMemberToAirtable(
     throw new Error(`Airtable error: ${res.status} ${body}`);
   }
 
-  console.log(`Member ${metadata.psuEmail} added to Airtable`);
+  console.log(`Member ${metadata.psuEmail} upserted in Airtable`);
 }
 
 // --- Tickets table -----------------------------------------------------------
@@ -211,13 +198,16 @@ export interface TicketOrderMetadata {
 }
 
 // Used by both the webhook (card orders) and the cash-order route. Card
-// orders pass their Stripe Payment Intent ID and dedupe against it, the
-// same way appendMemberToAirtable does. Cash orders have no PaymentIntent —
+// orders pass their Stripe Payment Intent ID; the webhook and the /return
+// page both call this for the same card order, fired independently within
+// moments of each other, so dedupe must be atomic — Airtable's upsert does
+// the match-or-create as one server-side operation, unlike a separate
+// look-up-then-insert pair of requests, which lets both calls pass the
+// check before either insert lands. Cash orders have no PaymentIntent —
 // each cash API call is a single synchronous write with no retry/webhook
-// redelivery to dedupe against, so it always inserts.
-// Returns whether this call actually inserted a new row (vs. hitting the
-// dedupe check) — the webhook and the /return page both call this for the
-// same card order, and callers use `inserted` to make sure a confirmation
+// redelivery to dedupe against, so it always plainly inserts.
+// Returns whether this call actually created a new row (vs. merging into
+// an existing one) — callers use `inserted` to make sure a confirmation
 // email only goes out once, from whichever of the two wins the race.
 export async function appendTicketToAirtable(
   order: TicketOrderMetadata,
@@ -225,21 +215,51 @@ export async function appendTicketToAirtable(
 ): Promise<{ inserted: boolean }> {
   const baseUrl = ticketsBaseUrl();
 
+  const fields = {
+    Timestamp: new Date().toISOString(),
+    "First Name": order.firstName,
+    "Last Name": order.lastName,
+    "Contact Email": order.contactEmail,
+    "PSU Email": order.psuEmail,
+    "Is Member": order.isMember,
+    "Event ID": order.eventId,
+    "Event Name": order.eventName,
+    "Ticket Type Key": order.ticketTypeKey,
+    "Ticket Type Name": order.ticketTypeName,
+    Quantity: order.quantity,
+    "Amount Paid": order.amountPaidCents / 100,
+    "Payment Method": order.paymentMethod,
+    Paid: order.paid,
+    "Stripe Payment Intent ID": paymentIntentId ?? "",
+    "Checked In Count": 0,
+  };
+
   if (paymentIntentId) {
-    const filter = encodeURIComponent(
-      `{Stripe Payment Intent ID} = '${paymentIntentId}'`
-    );
-    const lookup = await fetch(`${baseUrl}?filterByFormula=${filter}&maxRecords=1`, {
-      headers: { Authorization: `Bearer ${process.env.AIRTABLE_API_KEY}` },
-      cache: "no-store",
+    const res = await fetch(baseUrl, {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bearer ${process.env.AIRTABLE_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        performUpsert: { fieldsToMergeOn: ["Stripe Payment Intent ID"] },
+        records: [{ fields }],
+      }),
     });
-    if (lookup.ok) {
-      const data = (await lookup.json()) as { records?: unknown[] };
-      if (data.records && data.records.length > 0) {
-        console.log(`Ticket order already in Airtable (${paymentIntentId})`);
-        return { inserted: false };
-      }
+
+    if (!res.ok) {
+      const body = await res.text();
+      throw new Error(`Airtable error: ${res.status} ${body}`);
     }
+
+    const data = (await res.json()) as { createdRecords?: string[] };
+    const inserted = (data.createdRecords?.length ?? 0) > 0;
+    console.log(
+      inserted
+        ? `Ticket order for ${order.contactEmail} added to Airtable`
+        : `Ticket order already in Airtable (${paymentIntentId})`
+    );
+    return { inserted };
   }
 
   const res = await fetch(baseUrl, {
@@ -248,26 +268,7 @@ export async function appendTicketToAirtable(
       Authorization: `Bearer ${process.env.AIRTABLE_API_KEY}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      fields: {
-        Timestamp: new Date().toISOString(),
-        "First Name": order.firstName,
-        "Last Name": order.lastName,
-        "Contact Email": order.contactEmail,
-        "PSU Email": order.psuEmail,
-        "Is Member": order.isMember,
-        "Event ID": order.eventId,
-        "Event Name": order.eventName,
-        "Ticket Type Key": order.ticketTypeKey,
-        "Ticket Type Name": order.ticketTypeName,
-        Quantity: order.quantity,
-        "Amount Paid": order.amountPaidCents / 100,
-        "Payment Method": order.paymentMethod,
-        Paid: order.paid,
-        "Stripe Payment Intent ID": paymentIntentId ?? "",
-        "Checked In Count": 0,
-      },
-    }),
+    body: JSON.stringify({ fields }),
   });
 
   if (!res.ok) {
