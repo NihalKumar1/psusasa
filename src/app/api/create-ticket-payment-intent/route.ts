@@ -2,6 +2,8 @@ import Stripe from "stripe";
 import { NextRequest, NextResponse } from "next/server";
 import { resolveTicketOrder, TicketOrderError } from "@/lib/ticketing";
 import { computeCardFee } from "@/lib/fees";
+import { appendTicketToAirtable } from "@/lib/airtable";
+import { sendTicketConfirmationEmail } from "@/lib/ticketEmail";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 
@@ -50,6 +52,51 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: err.message }, { status: err.status });
       }
       throw err;
+    }
+
+    // A $0 order (free member ticket, free event, etc.) has nothing to
+    // charge — grossing up for Stripe's fee would mean charging the buyer
+    // money for a "free" ticket, and the total would fall below Stripe's
+    // minimum chargeable amount anyway. Skip Stripe entirely and confirm
+    // directly, same as a cash order but pre-paid/settled.
+    if (order.subtotalCents === 0) {
+      await appendTicketToAirtable(
+        {
+          firstName: trimmedFirst.slice(0, 500),
+          lastName: trimmedLast.slice(0, 500),
+          contactEmail: trimmedEmail.slice(0, 500),
+          psuEmail: String(psuEmail ?? "").trim().slice(0, 500),
+          isMember: order.isMember,
+          eventId: order.event._id,
+          eventName: order.event.title.slice(0, 500),
+          ticketTypeKey: order.ticketType._key,
+          ticketTypeName: order.ticketType.name.slice(0, 500),
+          quantity: order.quantity,
+          amountPaidCents: 0,
+          paymentMethod: "Card",
+          paid: true,
+        },
+        null
+      );
+
+      await sendTicketConfirmationEmail({
+        contactEmail: trimmedEmail,
+        firstName: trimmedFirst,
+        eventName: order.event.title,
+        ticketTypeName: order.ticketType.name,
+        quantity: order.quantity,
+        amountPaidCents: 0,
+      });
+
+      return NextResponse.json({
+        free: true,
+        isMember: order.isMember,
+        memberUnits: order.memberUnits,
+        nonMemberUnits: order.nonMemberUnits,
+        subtotalCents: 0,
+        feeCents: 0,
+        totalCents: 0,
+      });
     }
 
     // Fee applied once to the order total, not per ticket — avoids stacking

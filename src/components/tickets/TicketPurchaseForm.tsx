@@ -101,6 +101,11 @@ export default function TicketPurchaseForm({
     amountDueCents: number;
   } | null>(null);
 
+  const [freeConfirmation, setFreeConfirmation] = useState<{
+    memberUnits: number;
+    nonMemberUnits: number;
+  } | null>(null);
+
   const selectedType = purchasable.find((t) => t._key === ticketTypeKey);
   const maxQuantity = selectedType
     ? Math.max(
@@ -133,8 +138,12 @@ export default function TicketPurchaseForm({
     ? selectedType.nonMemberPriceCents * additionalQuantity
     : 0;
   const estimatedSubtotalCents = estimatedOwnUnitCents + estimatedAdditionalCents;
+  // Free orders never touch Stripe, so there's never a fee — regardless of
+  // which payment method is selected.
   const estimatedFeeCents =
-    paymentMethod === "card" ? computeCardFee(estimatedSubtotalCents).feeCents : 0;
+    paymentMethod === "card" && estimatedSubtotalCents > 0
+      ? computeCardFee(estimatedSubtotalCents).feeCents
+      : 0;
   const estimatedTotalCents = estimatedSubtotalCents + estimatedFeeCents;
 
   function validateStep1(): boolean {
@@ -180,17 +189,24 @@ export default function TicketPurchaseForm({
           body: JSON.stringify(payload),
         });
         const data = await res.json();
-        if (!res.ok || !data.clientSecret) {
+        if (!res.ok || (!data.clientSecret && !data.free)) {
           throw new Error(data.error ?? "Failed to start checkout.");
         }
-        setClientSecret(data.clientSecret);
-        setCardTotals({
-          memberUnits: data.memberUnits,
-          nonMemberUnits: data.nonMemberUnits,
-          subtotalCents: data.subtotalCents,
-          feeCents: data.feeCents,
-          totalCents: data.totalCents,
-        });
+        if (data.free) {
+          setFreeConfirmation({
+            memberUnits: data.memberUnits,
+            nonMemberUnits: data.nonMemberUnits,
+          });
+        } else {
+          setClientSecret(data.clientSecret);
+          setCardTotals({
+            memberUnits: data.memberUnits,
+            nonMemberUnits: data.nonMemberUnits,
+            subtotalCents: data.subtotalCents,
+            feeCents: data.feeCents,
+            totalCents: data.totalCents,
+          });
+        }
       } else {
         const res = await fetch("/api/create-cash-ticket-order", {
           method: "POST",
@@ -687,7 +703,31 @@ export default function TicketPurchaseForm({
         </div>
       )}
 
-      {step === 2 && paymentMethod === "card" && (
+      {step === 2 && paymentMethod === "card" && freeConfirmation && (
+        <div className="text-center">
+          <div className="mb-6 inline-flex h-16 w-16 items-center justify-center rounded-full bg-sasa-gold-400/20">
+            <svg
+              className="h-10 w-10 text-sasa-gold-600"
+              fill="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path d="M20.293 5.293a1 1 0 011.414 1.414l-10 10a1 1 0 01-1.414 0l-6-6a1 1 0 011.414-1.414L10 14.586l9.293-9.293z" />
+            </svg>
+          </div>
+          <h2 className="mb-2 font-heading text-xl font-bold text-sasa-red-900">
+            You&apos;re confirmed — free!
+          </h2>
+          <p className="text-sm text-sasa-neutral-500">
+            {breakdownLabel(
+              freeConfirmation.memberUnits,
+              freeConfirmation.nonMemberUnits
+            )}{" "}
+            — no payment needed. A confirmation email is on its way.
+          </p>
+        </div>
+      )}
+
+      {step === 2 && paymentMethod === "card" && !freeConfirmation && (
         <div>
           {submitting && (
             <p className="mb-4 text-sm text-sasa-neutral-500">
