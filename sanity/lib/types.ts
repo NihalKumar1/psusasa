@@ -86,6 +86,10 @@ export interface CountryItem {
   countryCode?: string;
 }
 
+export interface EventsPageCopy {
+  heroSubtitle?: string;
+}
+
 export interface AboutPageCopy {
   hero?: SimpleHero;
   history?: { heading?: string; body?: PortableTextBlock[] };

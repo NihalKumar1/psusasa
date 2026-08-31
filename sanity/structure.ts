@@ -5,6 +5,7 @@ const SINGLETONS: ReadonlyArray<readonly [schemaType: string, title: string]> = 
   ["homePage", "Home Page"],
   ["aboutPage", "About Page"],
   ["joinPage", "Join Page"],
+  ["eventsPage", "Events Page"],
   ["membershipFormCopy", "Membership Form"],
   ["membershipConfirmation", "Membership Confirmation"],
   ["notFoundPage", "404 Page"],

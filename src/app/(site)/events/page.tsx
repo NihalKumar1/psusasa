@@ -1,12 +1,14 @@
 import type { Metadata } from "next";
-import { sanityFetch } from "../../../../sanity/lib/client";
+import { sanityFetch, sanityFetchSingle } from "../../../../sanity/lib/client";
 import {
   upcomingEventsQuery,
   categoriesQuery,
+  eventsPageQuery,
 } from "../../../../sanity/lib/queries";
 import SectionHeading from "@/components/shared/SectionHeading";
 import EventsPageClient from "./EventsPageClient";
 import type { SanityEvent, SanityEventCategory } from "@/lib/types";
+import type { EventsPageCopy } from "../../../../sanity/lib/types";
 
 export const metadata: Metadata = {
   title: "Events | SASA at Penn State",
@@ -17,10 +19,14 @@ export const metadata: Metadata = {
 
 export const revalidate = 60;
 
+const FALLBACK_HERO_SUBTITLE =
+  "From cultural shows to community service — there's always something happening at SASA.";
+
 export default async function EventsPage() {
-  const [upcoming, categories] = await Promise.all([
+  const [upcoming, categories, copy] = await Promise.all([
     sanityFetch<SanityEvent>(upcomingEventsQuery),
     sanityFetch<SanityEventCategory>(categoriesQuery),
+    sanityFetchSingle<EventsPageCopy>(eventsPageQuery),
   ]);
 
   return (
@@ -34,8 +40,7 @@ export default async function EventsPage() {
               Our <span className="text-sasa-gold-400">Events</span>
             </h1>
             <p className="mt-4 text-lg text-white/80">
-              From cultural shows to community service — there&apos;s always
-              something happening at SASA.
+              {copy?.heroSubtitle ?? FALLBACK_HERO_SUBTITLE}
             </p>
           </div>
         </div>

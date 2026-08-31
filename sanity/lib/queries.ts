@@ -122,6 +122,10 @@ export const joinPageQuery = `*[_id == "joinPage"][0] {
   }
 }`;
 
+export const eventsPageQuery = `*[_id == "eventsPage"][0] {
+  heroSubtitle
+}`;
+
 export const aboutPageQuery = `*[_id == "aboutPage"][0] {
   hero{ title, subtitle },
   history{ heading, body },
