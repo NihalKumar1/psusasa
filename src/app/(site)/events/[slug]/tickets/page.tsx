@@ -164,6 +164,7 @@ export default async function EventTicketsPage({ params }: TicketsPageProps) {
             eventId={event._id}
             eventSlug={params.slug}
             ticketTypes={ticketTypes}
+            cashPaymentEnabled={event.cashPaymentEnabled !== false}
           />
         </div>
       </section>

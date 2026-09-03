@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { resolveTicketOrder, TicketOrderError } from "@/lib/ticketing";
 import { appendTicketToAirtable } from "@/lib/airtable";
+import { sendTicketConfirmationEmail } from "@/lib/ticketEmail";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -49,6 +50,54 @@ export async function POST(req: NextRequest) {
       throw err;
     }
 
+    if (order.event.cashPaymentEnabled === false) {
+      return NextResponse.json(
+        { error: "Cash payment is not available for this event." },
+        { status: 400 }
+      );
+    }
+
+    // A $0 order has nothing to collect at the door — "pay cash at the
+    // door" doesn't apply, so treat it the same as the free path on the
+    // card route: settled immediately, confirmation email sent now
+    // (a real cash order never gets one, since it's not paid yet).
+    if (order.subtotalCents === 0) {
+      await appendTicketToAirtable(
+        {
+          firstName: trimmedFirst.slice(0, 500),
+          lastName: trimmedLast.slice(0, 500),
+          contactEmail: trimmedEmail.slice(0, 500),
+          psuEmail: String(psuEmail ?? "").trim().slice(0, 500),
+          isMember: order.isMember,
+          memberYear: order.memberYear,
+          eventId: order.event._id,
+          eventName: order.event.title.slice(0, 500),
+          ticketTypeKey: order.ticketType._key,
+          ticketTypeName: order.ticketType.name.slice(0, 500),
+          quantity: order.quantity,
+          amountPaidCents: 0,
+          paymentMethod: "Card",
+          paid: true,
+        },
+        null
+      );
+
+      await sendTicketConfirmationEmail({
+        contactEmail: trimmedEmail,
+        firstName: trimmedFirst,
+        eventName: order.event.title,
+        ticketTypeName: order.ticketType.name,
+        quantity: order.quantity,
+        amountPaidCents: 0,
+      });
+
+      return NextResponse.json({
+        free: true,
+        memberUnits: order.memberUnits,
+        nonMemberUnits: order.nonMemberUnits,
+      });
+    }
+
     // No Stripe involved and no card fee — cash buyers pay exactly the
     // member/non-member ticket price. Writes straight to Airtable since
     // there's no PaymentIntent/webhook to hand off to.
@@ -59,6 +108,7 @@ export async function POST(req: NextRequest) {
         contactEmail: trimmedEmail.slice(0, 500),
         psuEmail: String(psuEmail ?? "").trim().slice(0, 500),
         isMember: order.isMember,
+        memberYear: order.memberYear,
         eventId: order.event._id,
         eventName: order.event.title.slice(0, 500),
         ticketTypeKey: order.ticketType._key,

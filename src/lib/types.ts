@@ -44,6 +44,7 @@ export interface SanityEvent {
   category: SanityEventCategory | null;
   isFeatured: boolean;
   ticketingEnabled?: boolean;
+  cashPaymentEnabled?: boolean;
   ticketTypes?: TicketType[];
 }
 

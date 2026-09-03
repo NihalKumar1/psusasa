@@ -66,6 +66,7 @@ export default async function TicketsReturnPage({
           contactEmail: m.contactEmail ?? "",
           psuEmail: m.psuEmail ?? "",
           isMember,
+          memberYear: m.memberYear || null,
           eventId: m.eventId ?? "",
           eventName,
           ticketTypeKey: m.ticketTypeKey ?? "",
