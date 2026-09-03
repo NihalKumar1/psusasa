@@ -75,6 +75,7 @@ export default async function TicketsReturnPage({
           amountPaidCents: amountCents,
           paymentMethod: "Card",
           paid: true,
+          boardMemberName: null,
         },
         paymentIntent!.id
       );

@@ -1,7 +1,10 @@
 import { notFound } from "next/navigation";
 import { sanityFetchSingle } from "../../../../sanity/lib/client";
-import { eventByIdQuery } from "../../../../sanity/lib/queries";
-import type { SanityEvent } from "@/lib/types";
+import {
+  eventByIdQuery,
+  boardMembersPickerQuery,
+} from "../../../../sanity/lib/queries";
+import type { SanityEvent, BoardMemberPickerEntry } from "@/lib/types";
 import { listTicketsForEvent } from "@/lib/airtable";
 import CheckinBoard from "@/components/checkin/CheckinBoard";
 
@@ -24,11 +27,21 @@ export default async function CheckinEventPage({
 
   const tickets = await listTicketsForEvent(params.eventId);
 
+  let boardMembers: BoardMemberPickerEntry[] = [];
+  if (event.boardPlusOneEnabled) {
+    const roster = await sanityFetchSingle<{ members?: BoardMemberPickerEntry[] }>(
+      boardMembersPickerQuery
+    );
+    boardMembers = roster?.members ?? [];
+  }
+
   return (
     <CheckinBoard
       eventId={params.eventId}
       eventTitle={event.title}
       initialTickets={tickets}
+      boardPlusOneEnabled={Boolean(event.boardPlusOneEnabled)}
+      boardMembers={boardMembers}
     />
   );
 }

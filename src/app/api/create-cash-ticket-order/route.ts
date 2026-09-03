@@ -78,6 +78,7 @@ export async function POST(req: NextRequest) {
           amountPaidCents: 0,
           paymentMethod: "Card",
           paid: true,
+          boardMemberName: null,
         },
         null
       );
@@ -117,6 +118,7 @@ export async function POST(req: NextRequest) {
         amountPaidCents: order.subtotalCents,
         paymentMethod: "Cash",
         paid: false,
+        boardMemberName: null,
       },
       null
     );

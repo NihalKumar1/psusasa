@@ -173,6 +173,8 @@ export interface TicketOrderMetadata {
   amountPaidCents: number;
   paymentMethod: "Card" | "Cash";
   paid: boolean;
+  /** The board member this guest's +1 belongs to ("First Last"), for board-plus-one entries only — null otherwise. */
+  boardMemberName: string | null;
 }
 
 // Used by both the webhook (card orders) and the cash-order route. Card
@@ -211,6 +213,7 @@ export async function appendTicketToAirtable(
     Paid: order.paid,
     "Stripe Payment Intent ID": paymentIntentId ?? "",
     "Checked In Count": 0,
+    "Board Member": order.boardMemberName ?? "",
   };
 
   if (paymentIntentId) {
@@ -311,6 +314,7 @@ export interface TicketRecord {
   /** How many of this order's `quantity` seats have been checked in — 0 to quantity. */
   checkedInCount: number;
   checkedInAt: string | null;
+  boardMemberName: string | null;
 }
 
 export async function listTicketsForEvent(
@@ -339,6 +343,7 @@ export async function listTicketsForEvent(
       paid: Boolean(f["Paid"]),
       checkedInCount: Number(f["Checked In Count"]) || 0,
       checkedInAt: f["Checked In At"] ? String(f["Checked In At"]) : null,
+      boardMemberName: f["Board Member"] ? String(f["Board Member"]) : null,
     };
   });
 }

@@ -29,7 +29,7 @@ export const eventBySlugQuery = `*[_type == "event" && slug.current == $slug][0]
 // Deliberately excludes checkinPassword; this query's results can reach the browser.
 export const eventByIdQuery = `*[_type == "event" && _id == $id][0] {
   _id, title, slug, date, endDate, hideEndTime, location, hideLocation, description, coverImage, isFeatured,
-  ticketingEnabled, cashPaymentEnabled, ticketTypes[]{ _key, name, memberPriceCents, nonMemberPriceCents, capacity, salesOpen },
+  ticketingEnabled, cashPaymentEnabled, boardPlusOneEnabled, ticketTypes[]{ _key, name, memberPriceCents, nonMemberPriceCents, capacity, salesOpen },
   "category": category->{ _id, name, color }
 }`;
 
@@ -41,6 +41,19 @@ export const ticketedEventsQuery = `*[_type == "event" && ticketingEnabled == tr
 // from eventByIdQuery so checkinPassword never ends up in a client-facing response.
 export const eventCheckinAuthQuery = `*[_type == "event" && _id == $id][0] {
   _id, checkinPassword
+}`;
+
+// Client-safe: no email. Used to populate the "Add +1" board-member picker
+// on the check-in board.
+export const boardMembersPickerQuery = `*[_id == "boardMembers"][0] {
+  members[]{ _key, firstName, lastName }
+}`;
+
+// Server-only: used exclusively by the board-plus-one route to resolve a
+// selected _key back to a real person. Kept separate from the picker query
+// so psuEmail never ends up in a client-facing response.
+export const boardMembersAuthQuery = `*[_id == "boardMembers"][0] {
+  members[]{ _key, firstName, lastName, psuEmail }
 }`;
 
 export const categoriesQuery = `*[_type == "eventCategory"] | order(name asc) {

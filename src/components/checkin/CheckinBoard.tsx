@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { TicketRecord } from "@/lib/airtable";
+import type { BoardMemberPickerEntry } from "@/lib/types";
+import { BOARD_PLUS_ONE_TICKET_TYPE_KEY } from "@/lib/boardPlusOne";
 
 const POLL_INTERVAL_MS = 3000;
 
@@ -24,18 +26,29 @@ interface CheckinBoardProps {
   eventId: string;
   eventTitle: string;
   initialTickets: TicketRecord[];
+  boardPlusOneEnabled: boolean;
+  boardMembers: BoardMemberPickerEntry[];
 }
 
 export default function CheckinBoard({
   eventId,
   eventTitle,
   initialTickets,
+  boardPlusOneEnabled,
+  boardMembers,
 }: CheckinBoardProps) {
   const [tickets, setTickets] = useState<TicketRecord[]>(initialTickets);
   const [search, setSearch] = useState("");
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [confirmCash, setConfirmCash] = useState<TicketRecord | null>(null);
+
+  const [showAddPlusOne, setShowAddPlusOne] = useState(false);
+  const [plusOneBoardMemberKey, setPlusOneBoardMemberKey] = useState("");
+  const [plusOneFirstName, setPlusOneFirstName] = useState("");
+  const [plusOneLastName, setPlusOneLastName] = useState("");
+  const [plusOneSubmitting, setPlusOneSubmitting] = useState(false);
+  const [plusOneError, setPlusOneError] = useState<string | null>(null);
 
   async function refetch() {
     try {
@@ -150,6 +163,58 @@ export default function CheckinBoard({
     setConfirmCash(null);
   }
 
+  // Board members who already have a +1 registered for this event, derived
+  // from the same ticket list already in state — no extra request needed.
+  // Disabling these in the picker is a UI nudge only; the server re-checks
+  // the real cap regardless.
+  const usedBoardMemberNames = useMemo(() => {
+    const names = new Set<string>();
+    for (const t of tickets) {
+      if (t.ticketTypeKey === BOARD_PLUS_ONE_TICKET_TYPE_KEY && t.boardMemberName) {
+        names.add(t.boardMemberName);
+      }
+    }
+    return names;
+  }, [tickets]);
+
+  function closeAddPlusOne() {
+    setShowAddPlusOne(false);
+    setPlusOneBoardMemberKey("");
+    setPlusOneFirstName("");
+    setPlusOneLastName("");
+    setPlusOneError(null);
+  }
+
+  async function submitAddPlusOne() {
+    if (!plusOneBoardMemberKey || !plusOneFirstName.trim() || !plusOneLastName.trim()) {
+      setPlusOneError("Select a board member and enter the guest's name.");
+      return;
+    }
+    setPlusOneSubmitting(true);
+    setPlusOneError(null);
+    try {
+      const res = await fetch(`/api/checkin/${eventId}/board-plus-one`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          boardMemberKey: plusOneBoardMemberKey,
+          guestFirstName: plusOneFirstName.trim(),
+          guestLastName: plusOneLastName.trim(),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error ?? "Failed to add guest.");
+      }
+      await refetch();
+      closeAddPlusOne();
+    } catch (err) {
+      setPlusOneError(err instanceof Error ? err.message : "Failed to add guest.");
+    } finally {
+      setPlusOneSubmitting(false);
+    }
+  }
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return tickets;
@@ -227,13 +292,23 @@ export default function CheckinBoard({
         )}
       </div>
 
-      <input
-        type="text"
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-        placeholder="Search by name or email..."
-        className="mb-4 w-full rounded border border-gray-300 px-4 py-3 text-base focus:border-sasa-red-900 focus:outline-none focus:ring-1 focus:ring-sasa-red-900"
-      />
+      <div className="mb-4 flex gap-2">
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search by name or email..."
+          className="w-full rounded border border-gray-300 px-4 py-3 text-base focus:border-sasa-red-900 focus:outline-none focus:ring-1 focus:ring-sasa-red-900"
+        />
+        {boardPlusOneEnabled && boardMembers.length > 0 && (
+          <button
+            onClick={() => setShowAddPlusOne(true)}
+            className="shrink-0 rounded border-2 border-sasa-gold-400 px-4 py-2 text-sm font-semibold text-sasa-gold-400 hover:bg-sasa-gold-400/10 transition-colors"
+          >
+            + Add +1
+          </button>
+        )}
+      </div>
 
       {error && (
         <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
@@ -373,6 +448,78 @@ export default function CheckinBoard({
                 className="rounded bg-sasa-red-900 px-4 py-2 text-sm font-semibold text-white hover:bg-sasa-red-700"
               >
                 Collected — Check In
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showAddPlusOne && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-lg">
+            <h2 className="mb-4 font-heading text-lg font-semibold text-sasa-red-900">
+              Add board +1
+            </h2>
+
+            <label className="mb-1 block text-sm font-medium text-sasa-red-900">
+              Board member
+            </label>
+            <select
+              value={plusOneBoardMemberKey}
+              onChange={(e) => setPlusOneBoardMemberKey(e.target.value)}
+              className="mb-3 w-full rounded border border-gray-300 px-3 py-2 text-sm focus:border-sasa-red-900 focus:outline-none focus:ring-1 focus:ring-sasa-red-900"
+            >
+              <option value="">Select a board member...</option>
+              {boardMembers.map((m) => {
+                const name = `${m.firstName} ${m.lastName}`;
+                const used = usedBoardMemberNames.has(name);
+                return (
+                  <option key={m._key} value={m._key} disabled={used}>
+                    {name}
+                    {used ? " (already added)" : ""}
+                  </option>
+                );
+              })}
+            </select>
+
+            <label className="mb-1 block text-sm font-medium text-sasa-red-900">
+              Guest&apos;s name
+            </label>
+            <div className="mb-3 grid grid-cols-2 gap-2">
+              <input
+                type="text"
+                value={plusOneFirstName}
+                onChange={(e) => setPlusOneFirstName(e.target.value)}
+                placeholder="First name"
+                className="rounded border border-gray-300 px-3 py-2 text-sm focus:border-sasa-red-900 focus:outline-none focus:ring-1 focus:ring-sasa-red-900"
+              />
+              <input
+                type="text"
+                value={plusOneLastName}
+                onChange={(e) => setPlusOneLastName(e.target.value)}
+                placeholder="Last name"
+                className="rounded border border-gray-300 px-3 py-2 text-sm focus:border-sasa-red-900 focus:outline-none focus:ring-1 focus:ring-sasa-red-900"
+              />
+            </div>
+
+            {plusOneError && (
+              <p className="mb-3 text-sm text-red-600">{plusOneError}</p>
+            )}
+
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={closeAddPlusOne}
+                disabled={plusOneSubmitting}
+                className="rounded border-2 border-sasa-gold-400 px-4 py-2 text-sm font-semibold text-sasa-gold-400 hover:bg-sasa-gold-400/10 disabled:opacity-60"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={submitAddPlusOne}
+                disabled={plusOneSubmitting}
+                className="rounded bg-sasa-red-900 px-4 py-2 text-sm font-semibold text-white hover:bg-sasa-red-700 disabled:opacity-60"
+              >
+                {plusOneSubmitting ? "Adding..." : "Add Guest"}
               </button>
             </div>
           </div>
