@@ -217,11 +217,18 @@ export default function TicketPurchaseForm({
         if (!res.ok) {
           throw new Error(data.error ?? "Failed to record your order.");
         }
-        setCashConfirmation({
-          memberUnits: data.memberUnits,
-          nonMemberUnits: data.nonMemberUnits,
-          amountDueCents: data.amountDueCents,
-        });
+        if (data.free) {
+          setFreeConfirmation({
+            memberUnits: data.memberUnits,
+            nonMemberUnits: data.nonMemberUnits,
+          });
+        } else {
+          setCashConfirmation({
+            memberUnits: data.memberUnits,
+            nonMemberUnits: data.nonMemberUnits,
+            amountDueCents: data.amountDueCents,
+          });
+        }
       }
     } catch (err) {
       setSubmitError(err instanceof Error ? err.message : "Something went wrong.");
@@ -703,7 +710,7 @@ export default function TicketPurchaseForm({
         </div>
       )}
 
-      {step === 2 && paymentMethod === "card" && freeConfirmation && (
+      {step === 2 && freeConfirmation && (
         <div className="text-center">
           <div className="mb-6 inline-flex h-16 w-16 items-center justify-center rounded-full bg-sasa-gold-400/20">
             <svg
@@ -797,7 +804,7 @@ export default function TicketPurchaseForm({
         </div>
       )}
 
-      {step === 2 && paymentMethod === "cash" && (
+      {step === 2 && paymentMethod === "cash" && !freeConfirmation && (
         <div className="text-center">
           {submitting && (
             <p className="text-sm text-sasa-neutral-500">Recording your order...</p>
