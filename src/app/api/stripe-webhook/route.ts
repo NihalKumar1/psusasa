@@ -53,6 +53,7 @@ export async function POST(req: NextRequest) {
             contactEmail: metadata.contactEmail ?? "",
             psuEmail: metadata.psuEmail ?? "",
             isMember: metadata.isMember === "true",
+            memberYear: metadata.memberYear || null,
             eventId: metadata.eventId ?? "",
             eventName,
             ticketTypeKey: metadata.ticketTypeKey ?? "",

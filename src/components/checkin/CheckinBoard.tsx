@@ -292,7 +292,11 @@ export default function CheckinBoard({
                         : "bg-gray-100 text-sasa-neutral-500"
                     }`}
                   >
-                    {t.isMember ? "Member" : "Non-Member"}
+                    {t.isMember
+                      ? t.memberYear
+                        ? `Member · ${t.memberYear}`
+                        : "Member"
+                      : "Non-Member"}
                   </span>
                   {owedCents > 0 && (
                     <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">

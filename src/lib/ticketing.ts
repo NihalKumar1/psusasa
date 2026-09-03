@@ -32,6 +32,8 @@ export interface ResolvedTicketOrder {
   isCurrentMember: boolean;
   /** True if this order's buyer-unit was priced at the member rate. */
   isMember: boolean;
+  /** The buyer's Members-table "Year", when isMember is true — otherwise null. */
+  memberYear: string | null;
   /** Always 0 or 1 — at most one seat per order/person ever gets member pricing. */
   memberUnits: number;
   nonMemberUnits: number;
@@ -77,9 +79,9 @@ export async function resolveTicketOrder({
   }
 
   const emailInput = typeof psuEmail === "string" ? psuEmail.trim() : "";
-  const isCurrentMember = emailInput
+  const { isMember: isCurrentMember, year: currentMemberYear } = emailInput
     ? await lookupCurrentMember(emailInput)
-    : false;
+    : { isMember: false, year: null };
 
   // At most 1 ticket per person, ever, gets the member price for a given
   // event — the buyer's own seat, and only if they haven't already used
@@ -113,6 +115,7 @@ export async function resolveTicketOrder({
     quantity: qty,
     isCurrentMember,
     isMember: memberUnits > 0,
+    memberYear: memberUnits > 0 ? currentMemberYear : null,
     memberUnits,
     nonMemberUnits,
     subtotalCents,

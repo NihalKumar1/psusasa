@@ -158,6 +158,15 @@ export default defineType({
       ],
     }),
     defineField({
+      name: "cashPaymentEnabled",
+      title: "Allow Cash at the Door",
+      type: "boolean",
+      description:
+        'Turn off to require card payment only — hides the "Pay cash at the door" option on the ticket purchase form.',
+      hidden: ({ parent }) => !parent?.ticketingEnabled,
+      initialValue: true,
+    }),
+    defineField({
       name: "checkinPassword",
       title: "Door Check-In Password",
       type: "string",

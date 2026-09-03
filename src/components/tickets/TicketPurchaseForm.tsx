@@ -34,6 +34,7 @@ interface TicketPurchaseFormProps {
   eventId: string;
   eventSlug: string;
   ticketTypes: TicketTypeOption[];
+  cashPaymentEnabled: boolean;
 }
 
 function formatPrice(cents: number): string {
@@ -58,6 +59,7 @@ export default function TicketPurchaseForm({
   eventId,
   eventSlug,
   ticketTypes,
+  cashPaymentEnabled,
 }: TicketPurchaseFormProps) {
   const purchasable = useMemo(
     () =>
@@ -586,48 +588,50 @@ export default function TicketPurchaseForm({
                   </span>
                 </span>
               </label>
-              <label
-                className={`flex cursor-pointer items-center gap-3 rounded-lg border-2 p-3 transition-all ${
-                  paymentMethod === "cash"
-                    ? "border-sasa-red-900 bg-sasa-red-900/5 shadow-sm"
-                    : "border-gray-200 hover:border-sasa-red-900/30 hover:bg-gray-50"
-                }`}
-              >
-                <input
-                  type="radio"
-                  name="paymentMethod"
-                  checked={paymentMethod === "cash"}
-                  onChange={() => setPaymentMethod("cash")}
-                  className="sr-only"
-                />
-                <span
-                  className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 transition-colors ${
+              {cashPaymentEnabled && (
+                <label
+                  className={`flex cursor-pointer items-center gap-3 rounded-lg border-2 p-3 transition-all ${
                     paymentMethod === "cash"
-                      ? "border-sasa-red-900 bg-sasa-red-900"
-                      : "border-gray-300"
+                      ? "border-sasa-red-900 bg-sasa-red-900/5 shadow-sm"
+                      : "border-gray-200 hover:border-sasa-red-900/30 hover:bg-gray-50"
                   }`}
                 >
-                  {paymentMethod === "cash" && (
-                    <span className="h-2 w-2 rounded-full bg-white" />
-                  )}
-                </span>
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-sasa-red-900/10 text-sasa-red-900">
-                  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                    <rect x="2.25" y="6" width="19.5" height="12" rx="2" />
-                    <circle cx="12" cy="12" r="2.5" />
-                  </svg>
-                </span>
-                <span>
-                  <span className="block text-sm font-semibold text-sasa-red-900">
-                    Pay cash at the door
+                  <input
+                    type="radio"
+                    name="paymentMethod"
+                    checked={paymentMethod === "cash"}
+                    onChange={() => setPaymentMethod("cash")}
+                    className="sr-only"
+                  />
+                  <span
+                    className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 transition-colors ${
+                      paymentMethod === "cash"
+                        ? "border-sasa-red-900 bg-sasa-red-900"
+                        : "border-gray-300"
+                    }`}
+                  >
+                    {paymentMethod === "cash" && (
+                      <span className="h-2 w-2 rounded-full bg-white" />
+                    )}
                   </span>
-                  <span className="block text-xs text-sasa-neutral-500">
-                    Pay when you arrive
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-sasa-red-900/10 text-sasa-red-900">
+                    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                      <rect x="2.25" y="6" width="19.5" height="12" rx="2" />
+                      <circle cx="12" cy="12" r="2.5" />
+                    </svg>
                   </span>
-                </span>
-              </label>
+                  <span>
+                    <span className="block text-sm font-semibold text-sasa-red-900">
+                      Pay cash at the door
+                    </span>
+                    <span className="block text-xs text-sasa-neutral-500">
+                      Pay when you arrive
+                    </span>
+                  </span>
+                </label>
+              )}
             </div>
-            {paymentMethod === "cash" && (
+            {cashPaymentEnabled && paymentMethod === "cash" && (
               <div className="mt-2 rounded border border-amber-200 bg-amber-50 p-3">
                 <p className="text-xs text-amber-800">
                   <strong>No cash, no entry.</strong> You&apos;ll be on the

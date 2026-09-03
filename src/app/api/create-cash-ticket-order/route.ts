@@ -50,6 +50,13 @@ export async function POST(req: NextRequest) {
       throw err;
     }
 
+    if (order.event.cashPaymentEnabled === false) {
+      return NextResponse.json(
+        { error: "Cash payment is not available for this event." },
+        { status: 400 }
+      );
+    }
+
     // A $0 order has nothing to collect at the door — "pay cash at the
     // door" doesn't apply, so treat it the same as the free path on the
     // card route: settled immediately, confirmation email sent now
@@ -62,6 +69,7 @@ export async function POST(req: NextRequest) {
           contactEmail: trimmedEmail.slice(0, 500),
           psuEmail: String(psuEmail ?? "").trim().slice(0, 500),
           isMember: order.isMember,
+          memberYear: order.memberYear,
           eventId: order.event._id,
           eventName: order.event.title.slice(0, 500),
           ticketTypeKey: order.ticketType._key,
@@ -100,6 +108,7 @@ export async function POST(req: NextRequest) {
         contactEmail: trimmedEmail.slice(0, 500),
         psuEmail: String(psuEmail ?? "").trim().slice(0, 500),
         isMember: order.isMember,
+        memberYear: order.memberYear,
         eventId: order.event._id,
         eventName: order.event.title.slice(0, 500),
         ticketTypeKey: order.ticketType._key,

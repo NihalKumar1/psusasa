@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ isMember: false, alreadyUsed: false });
     }
 
-    const isMember = await lookupCurrentMember(email);
+    const { isMember } = await lookupCurrentMember(email);
     const alreadyUsed = isMember ? await hasUsedMemberPricing(eventId, email) : false;
 
     return NextResponse.json({ isMember, alreadyUsed });

@@ -38,16 +38,22 @@ export async function lookupPastMember(
   return !!(data.records && data.records.length > 0);
 }
 
+export interface CurrentMemberInfo {
+  isMember: boolean;
+  /** The Members table's "Year" field for this person, or null if absent/not a member. */
+  year: string | null;
+}
+
 // Every row in the "Members" table is treated as a currently valid member —
 // no term/year scoping. Unlike lookupPastMember (a low-stakes discount check
 // that fails open), this decides an actual charge amount, so a lookup
 // failure falls back to non-member pricing rather than a free discount.
-export async function lookupCurrentMember(psuEmail: string): Promise<boolean> {
+export async function lookupCurrentMember(psuEmail: string): Promise<CurrentMemberInfo> {
   const tableName = process.env.AIRTABLE_TABLE_NAME ?? "Members";
   const baseUrl = `https://api.airtable.com/v0/${process.env.AIRTABLE_BASE_ID}/${encodeURIComponent(tableName)}`;
 
   const email = psuEmail.trim().toLowerCase();
-  if (!email) return false;
+  if (!email) return { isMember: false, year: null };
 
   const formula = `LOWER(TRIM({PSU Email})) = '${escapeForAirtableFormula(email)}'`;
 
@@ -62,18 +68,24 @@ export async function lookupCurrentMember(psuEmail: string): Promise<boolean> {
     );
   } catch (err) {
     console.error("Members lookup request failed:", err);
-    return false;
+    return { isMember: false, year: null };
   }
 
   if (!res.ok) {
     console.error(
       `Members lookup failed: ${res.status} ${await res.text()}`
     );
-    return false;
+    return { isMember: false, year: null };
   }
 
-  const data = (await res.json()) as { records?: unknown[] };
-  return !!(data.records && data.records.length > 0);
+  const data = (await res.json()) as {
+    records?: Array<{ fields?: Record<string, unknown> }>;
+  };
+  const record = data.records?.[0];
+  if (!record) return { isMember: false, year: null };
+
+  const year = record.fields?.["Year"];
+  return { isMember: true, year: typeof year === "string" && year ? year : null };
 }
 
 // The webhook and the /join/return page both call this for the same
@@ -187,6 +199,8 @@ export interface TicketOrderMetadata {
   contactEmail: string;
   psuEmail: string;
   isMember: boolean;
+  /** The buyer's Members-table "Year", when this order got member pricing — null otherwise. */
+  memberYear: string | null;
   eventId: string;
   eventName: string;
   ticketTypeKey: string;
@@ -222,6 +236,7 @@ export async function appendTicketToAirtable(
     "Contact Email": order.contactEmail,
     "PSU Email": order.psuEmail,
     "Is Member": order.isMember,
+    "Member Year": order.memberYear ?? "",
     "Event ID": order.eventId,
     "Event Name": order.eventName,
     "Ticket Type Key": order.ticketTypeKey,
@@ -322,6 +337,7 @@ export interface TicketRecord {
   contactEmail: string;
   psuEmail: string;
   isMember: boolean;
+  memberYear: string | null;
   ticketTypeKey: string;
   ticketTypeName: string;
   quantity: number;
@@ -350,6 +366,7 @@ export async function listTicketsForEvent(
       contactEmail: String(f["Contact Email"] ?? ""),
       psuEmail: String(f["PSU Email"] ?? ""),
       isMember: Boolean(f["Is Member"]),
+      memberYear: f["Member Year"] ? String(f["Member Year"]) : null,
       ticketTypeKey: String(f["Ticket Type Key"] ?? ""),
       ticketTypeName: String(f["Ticket Type Name"] ?? ""),
       quantity: Number(f["Quantity"]) || 0,
