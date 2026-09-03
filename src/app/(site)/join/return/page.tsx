@@ -168,8 +168,6 @@ export default async function JoinReturnPage({
   }
 
   const isComplete = paymentIntent?.status === "succeeded";
-  const isTransferStudent =
-    paymentIntent?.metadata?.membershipType === "transfer";
 
   // Always show what Stripe actually charged for this payment, not the
   // generic (legacy, often-stale) CMS fallback price.
@@ -191,19 +189,7 @@ export default async function JoinReturnPage({
   const pendingHero =
     copy?.pendingState?.heroTitle ?? FALLBACK_PENDING_HERO;
 
-  const transferPendingTitle =
-    formCopy?.tiers?.transferPendingTitle ?? "Request Pending Approval";
-  const transferPendingMessage =
-    formCopy?.tiers?.transferPendingMessage ??
-    "Thanks for your payment! Since you're a transfer student, we need to verify before adding you to the GroupMe. Please email a screenshot of your Penn State campus change confirmation email to exec.psusasa@gmail.com. Once verified, we'll add you to the GroupMe.";
-  const transferPendingEmail =
-    formCopy?.tiers?.transferPendingEmail ?? "exec.psusasa@gmail.com";
-
-  const heroTitle = isComplete
-    ? isTransferStudent
-      ? transferPendingTitle
-      : successHero
-    : pendingHero;
+  const heroTitle = isComplete ? successHero : pendingHero;
 
   const cardTitle =
     copy?.successState?.cardTitle ?? FALLBACK_SUCCESS_CARD_TITLE;
@@ -245,44 +231,7 @@ export default async function JoinReturnPage({
 
       <section className="bg-white py-16">
         <div className="mx-auto max-w-3xl px-4 sm:px-6 lg:px-8">
-          {isComplete && isTransferStudent ? (
-            <div className="rounded-xl border border-gray-200 bg-white p-8 text-center">
-              <ClearSavedForm />
-
-              <div className="mb-6 inline-flex h-16 w-16 items-center justify-center rounded-full bg-sasa-gold-400/20">
-                <svg
-                  className="h-10 w-10 text-sasa-gold-600"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                  strokeWidth={1.8}
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M12 8v4l3 2m6-2a9 9 0 11-18 0 9 9 0 0118 0z"
-                  />
-                </svg>
-              </div>
-
-              <h2 className="font-heading text-2xl font-bold text-sasa-red-900 mb-3">
-                {transferPendingTitle}
-              </h2>
-
-              <p className="mx-auto mb-6 max-w-xl whitespace-pre-wrap text-sm leading-relaxed text-sasa-neutral-500">
-                {transferPendingMessage}
-              </p>
-
-              <a
-                href={`mailto:${transferPendingEmail}?subject=${encodeURIComponent(
-                  `Transfer Membership Verification — ${(paymentIntent?.metadata?.firstName ?? "").trim()} ${(paymentIntent?.metadata?.lastName ?? "").trim()}`.trim()
-                )}`}
-                className="inline-block rounded bg-sasa-red-900 px-6 py-3 text-sm font-semibold text-white hover:bg-sasa-red-700 transition-colors"
-              >
-                Email {transferPendingEmail}
-              </a>
-            </div>
-          ) : isComplete ? (
+          {isComplete ? (
             <div className="rounded-xl border border-gray-200 bg-white p-8 text-center">
               <ClearSavedForm />
 
