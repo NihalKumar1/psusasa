@@ -132,96 +132,11 @@ export default defineType({
   fields: [
     defineField({
       name: "priceCents",
-      title: "Price (in cents) — legacy",
+      title: "Membership Price (in cents)",
       type: "number",
-      description:
-        "Legacy single-price field. Pricing is now driven by the Membership Tiers section below. This is retained as a fallback only.",
-      initialValue: 50,
+      description: "Flat price for all memberships. Example: 3500 = $35.00.",
+      initialValue: 3500,
       validation: (Rule) => Rule.required().integer().min(50),
-    }),
-    defineField({
-      name: "tiers",
-      title: "Early Bird 1 — Membership Tiers",
-      type: "object",
-      description:
-        "Early Bird 1 pricing round. The two price options shown on Step 1 of the join form. Users pick one and pay exactly that amount.",
-      fields: [
-        {
-          name: "heading",
-          title: "Question Label",
-          type: "string",
-          initialValue: "Membership Type",
-        },
-        {
-          name: "returningLabel",
-          title: "Returning Member Option Label",
-          type: "string",
-          initialValue: "Early Bird 1 — Returning Member",
-        },
-        {
-          name: "returningPriceCents",
-          title: "Returning Member Price (in cents)",
-          type: "number",
-          description: "Example: 2500 = $25.00",
-          initialValue: 2500,
-          validation: (Rule) => Rule.required().integer().min(50),
-        },
-        {
-          name: "transferLabel",
-          title: "Transfer Student Option Label",
-          type: "string",
-          initialValue: "Early Bird 1 — Transfer Student",
-        },
-        {
-          name: "transferPriceCents",
-          title: "Transfer Student Price (in cents) — for display only",
-          type: "number",
-          description:
-            "Example: 2500 = $25.00. Transfer students are NOT charged through the site — they're routed to a pending-approval screen and follow up over email. This number is shown next to the radio option on Step 1 so they know the eventual cost.",
-          initialValue: 2500,
-          validation: (Rule) => Rule.required().integer().min(50),
-        },
-        {
-          name: "transferPendingTitle",
-          title: "Transfer — Pending Screen Title",
-          type: "string",
-          initialValue: "Request Pending Approval",
-        },
-        {
-          name: "transferPendingMessage",
-          title: "Transfer — Pending Screen Message",
-          type: "text",
-          rows: 5,
-          initialValue:
-            "Thanks for your interest! Since you're a transfer student, we need to verify before adding you to the GroupMe. Please email a screenshot of your Penn State campus change confirmation email to exec.psusasa@gmail.com. Once verified, we'll add you to the GroupMe and follow up about payment.",
-        },
-        {
-          name: "transferPendingEmail",
-          title: "Transfer — Contact Email",
-          type: "string",
-          initialValue: "exec.psusasa@gmail.com",
-        },
-        {
-          name: "newMemberLabel",
-          title: "New Member Option Label",
-          type: "string",
-          initialValue: "Early Bird 1 — New Member",
-        },
-        {
-          name: "newMemberPriceCents",
-          title: "New Member Price (in cents)",
-          type: "number",
-          description: "Example: 2800 = $28.00",
-          initialValue: 2800,
-          validation: (Rule) => Rule.required().integer().min(50),
-        },
-        {
-          name: "requiredError",
-          title: "Required-Field Error Message",
-          type: "string",
-          initialValue: "Please select your membership type.",
-        },
-      ],
     }),
     defineField({
       name: "stepLabels",

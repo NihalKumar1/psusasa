@@ -28,31 +28,13 @@ const stripePromise = loadStripe(
 
 type Step = 1 | 2 | 3;
 
-type MembershipType = "" | "returning" | "transfer" | "new";
-
 interface Step1 {
   firstName: string;
   lastName: string;
   psuEmail: string;
   phone: string;
   year: string;
-  membershipType: MembershipType;
 }
-
-const TIER_FALLBACK = {
-  heading: "Membership Type",
-  returningLabel: "Early Bird 1 — Returning Member",
-  returningPriceCents: 2500,
-  transferLabel: "Early Bird 1 — Transfer Student",
-  transferPriceCents: 2500,
-  transferPendingTitle: "Request Pending Approval",
-  transferPendingMessage:
-    "Thanks for your interest! Since you're a transfer student, we need to verify before adding you to the GroupMe. Please email a screenshot of your Penn State campus change confirmation email to exec.psusasa@gmail.com. Once verified, we'll add you to the GroupMe and follow up about payment.",
-  transferPendingEmail: "exec.psusasa@gmail.com",
-  newMemberLabel: "Early Bird 1 — New Member",
-  newMemberPriceCents: 2800,
-  requiredError: "Please select your membership type.",
-};
 
 interface OtherableSingle {
   selected: string;
@@ -308,12 +290,6 @@ function reconcilePersisted(
     step1: {
       ...p.step1,
       year: opts.year.includes(p.step1.year) ? p.step1.year : "",
-      membershipType:
-        p.step1.membershipType === "returning" ||
-        p.step1.membershipType === "transfer" ||
-        p.step1.membershipType === "new"
-          ? p.step1.membershipType
-          : "",
     },
     step2: {
       ...p.step2,
@@ -471,7 +447,6 @@ export default function MembershipForm({ copy }: MembershipFormProps) {
       psuEmail: "",
       phone: "",
       year: "",
-      membershipType: "",
     }
   );
 
@@ -543,15 +518,6 @@ export default function MembershipForm({ copy }: MembershipFormProps) {
         delete next.year;
         changed = true;
       }
-      if (
-        next.membershipType &&
-        (step1.membershipType === "returning" ||
-          step1.membershipType === "transfer" ||
-          step1.membershipType === "new")
-      ) {
-        delete next.membershipType;
-        changed = true;
-      }
 
       if (
         next.gender &&
@@ -601,40 +567,7 @@ export default function MembershipForm({ copy }: MembershipFormProps) {
     const s1 = copy?.step1;
     const s2 = copy?.step2;
     const s3 = copy?.step3;
-    const tiers = copy?.tiers;
     return {
-      tiers: {
-        heading: tiers?.heading ?? TIER_FALLBACK.heading,
-        returningLabel:
-          tiers?.returningLabel ?? TIER_FALLBACK.returningLabel,
-        returningPriceCents:
-          typeof tiers?.returningPriceCents === "number" &&
-          tiers.returningPriceCents >= 50
-            ? tiers.returningPriceCents
-            : TIER_FALLBACK.returningPriceCents,
-        transferLabel:
-          tiers?.transferLabel ?? TIER_FALLBACK.transferLabel,
-        transferPriceCents:
-          typeof tiers?.transferPriceCents === "number" &&
-          tiers.transferPriceCents >= 50
-            ? tiers.transferPriceCents
-            : TIER_FALLBACK.transferPriceCents,
-        transferPendingTitle:
-          tiers?.transferPendingTitle ?? TIER_FALLBACK.transferPendingTitle,
-        transferPendingMessage:
-          tiers?.transferPendingMessage ?? TIER_FALLBACK.transferPendingMessage,
-        transferPendingEmail:
-          tiers?.transferPendingEmail ?? TIER_FALLBACK.transferPendingEmail,
-        newMemberLabel:
-          tiers?.newMemberLabel ?? TIER_FALLBACK.newMemberLabel,
-        newMemberPriceCents:
-          typeof tiers?.newMemberPriceCents === "number" &&
-          tiers.newMemberPriceCents >= 50
-            ? tiers.newMemberPriceCents
-            : TIER_FALLBACK.newMemberPriceCents,
-        requiredError:
-          tiers?.requiredError ?? TIER_FALLBACK.requiredError,
-      },
       stepIndicator: [
         stepLabels?.step1 ?? "Personal Info",
         stepLabels?.step2 ?? "Demographics",
@@ -711,16 +644,7 @@ export default function MembershipForm({ copy }: MembershipFormProps) {
     };
   }, [copy]);
 
-  const selectedTierPriceCents =
-    step1.membershipType === "returning"
-      ? t.tiers.returningPriceCents
-      : step1.membershipType === "transfer"
-        ? t.tiers.transferPriceCents
-        : step1.membershipType === "new"
-          ? t.tiers.newMemberPriceCents
-          : null;
-
-  const baseCents = selectedTierPriceCents ?? copy?.priceCents ?? 50;
+  const baseCents = copy?.priceCents ?? 3500;
   const fee = computeCardFee(baseCents);
   const priceDisplay = formatPrice(baseCents);
   const feeDisplay = formatPrice(fee.feeCents);
@@ -739,13 +663,6 @@ export default function MembershipForm({ copy }: MembershipFormProps) {
       return false;
     }
     if (!step1.year) return false;
-    if (
-      step1.membershipType !== "returning" &&
-      step1.membershipType !== "transfer" &&
-      step1.membershipType !== "new"
-    ) {
-      return false;
-    }
     return true;
   }, [step1, phoneCountry]);
 
@@ -772,14 +689,6 @@ export default function MembershipForm({ copy }: MembershipFormProps) {
 
     if (!step1.year) {
       next.year = t.step1.yearRequired;
-    }
-
-    if (
-      step1.membershipType !== "returning" &&
-      step1.membershipType !== "transfer" &&
-      step1.membershipType !== "new"
-    ) {
-      next.membershipType = t.tiers.requiredError;
     }
 
     setErrors(next);
@@ -853,7 +762,6 @@ export default function MembershipForm({ copy }: MembershipFormProps) {
       psuEmail: step1.psuEmail,
       phone: `+${getCountryCallingCode(phoneCountry)}${step1.phone}`,
       year: step1.year,
-      membershipType: step1.membershipType,
       major: step2.major,
       hometown: step2.hometown,
       gender: resolveSingle(step2.gender),
@@ -1159,65 +1067,6 @@ export default function MembershipForm({ copy }: MembershipFormProps) {
               </div>
               {errors.year && (
                 <p className="mt-1 text-xs text-red-500">{errors.year}</p>
-              )}
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-sasa-red-900 mb-2">
-                {t.tiers.heading} <span className="text-red-500">*</span>
-              </label>
-              <div className="space-y-2">
-                {(
-                  [
-                    {
-                      value: "returning" as const,
-                      label: t.tiers.returningLabel,
-                      priceCents: t.tiers.returningPriceCents,
-                    },
-                    {
-                      value: "transfer" as const,
-                      label: t.tiers.transferLabel,
-                      priceCents: t.tiers.transferPriceCents,
-                    },
-                    {
-                      value: "new" as const,
-                      label: t.tiers.newMemberLabel,
-                      priceCents: t.tiers.newMemberPriceCents,
-                    },
-                  ]
-                ).map((tier) => (
-                  <label
-                    key={tier.value}
-                    className={`flex items-start gap-3 rounded border px-3 py-2 cursor-pointer transition-colors ${
-                      step1.membershipType === tier.value
-                        ? "border-sasa-red-900 bg-sasa-red-900/5"
-                        : "border-gray-300 hover:border-sasa-red-900/40"
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      name="membershipType"
-                      value={tier.value}
-                      checked={step1.membershipType === tier.value}
-                      onChange={() =>
-                        setStep1((p) => ({
-                          ...p,
-                          membershipType: tier.value,
-                        }))
-                      }
-                      className="mt-1 accent-sasa-red-900"
-                    />
-                    <span className="flex-1 text-sm">{tier.label}</span>
-                    <span className="text-sm font-semibold text-sasa-gold-600">
-                      {formatPrice(tier.priceCents)}
-                    </span>
-                  </label>
-                ))}
-              </div>
-              {errors.membershipType && (
-                <p className="mt-1 text-xs text-red-500">
-                  {errors.membershipType}
-                </p>
               )}
             </div>
           </div>

@@ -2,42 +2,6 @@ function escapeForAirtableFormula(value: string): string {
   return value.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
 }
 
-export async function lookupPastMember(
-  firstName: string,
-  lastName: string
-): Promise<boolean> {
-  const tableName =
-    process.env.AIRTABLE_PAST_MEMBERS_TABLE_NAME ?? "Past Members";
-  const baseUrl = `https://api.airtable.com/v0/${process.env.AIRTABLE_BASE_ID}/${encodeURIComponent(tableName)}`;
-
-  const first = firstName.trim().toLowerCase();
-  const last = lastName.trim().toLowerCase();
-  if (!first || !last) return false;
-
-  const formula = `AND(LOWER(TRIM({First Name})) = '${escapeForAirtableFormula(first)}', LOWER(TRIM({Last Name})) = '${escapeForAirtableFormula(last)}')`;
-
-  const res = await fetch(
-    `${baseUrl}?filterByFormula=${encodeURIComponent(formula)}&maxRecords=1`,
-    {
-      headers: { Authorization: `Bearer ${process.env.AIRTABLE_API_KEY}` },
-      cache: "no-store",
-    }
-  );
-
-  if (!res.ok) {
-    console.error(
-      `Past Members lookup failed: ${res.status} ${await res.text()}`
-    );
-    // Fail open so a transient Airtable outage doesn't block all returning
-    // member signups. Verification is a price-tier check, not a security
-    // gate — payment still requires a valid card.
-    return true;
-  }
-
-  const data = (await res.json()) as { records?: unknown[] };
-  return !!(data.records && data.records.length > 0);
-}
-
 export interface CurrentMemberInfo {
   isMember: boolean;
   /** The Members table's "Year" field for this person, or null if absent/not a member. */
@@ -45,9 +9,9 @@ export interface CurrentMemberInfo {
 }
 
 // Every row in the "Members" table is treated as a currently valid member —
-// no term/year scoping. Unlike lookupPastMember (a low-stakes discount check
-// that fails open), this decides an actual charge amount, so a lookup
-// failure falls back to non-member pricing rather than a free discount.
+// no term/year scoping. This decides an actual charge amount (ticket member
+// pricing), so a lookup failure falls back to non-member pricing rather
+// than a free discount.
 export async function lookupCurrentMember(psuEmail: string): Promise<CurrentMemberInfo> {
   const tableName = process.env.AIRTABLE_TABLE_NAME ?? "Members";
   const baseUrl = `https://api.airtable.com/v0/${process.env.AIRTABLE_BASE_ID}/${encodeURIComponent(tableName)}`;
@@ -123,7 +87,7 @@ export async function appendMemberToAirtable(
             "PSU Email": metadata.psuEmail,
             Phone: metadata.phone,
             Year: metadata.year,
-            "Membership Type": metadata.membershipTier ?? metadata.membershipType,
+            "Membership Type": metadata.membershipTier,
             "Amount Paid": amountPaidDollars,
             Major: metadata.major,
             Hometown: metadata.hometown,
