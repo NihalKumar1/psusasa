@@ -62,6 +62,7 @@ export async function POST(req: NextRequest) {
             amountPaidCents: paymentIntent.amount,
             paymentMethod: "Card",
             paid: true,
+            boardMemberName: null,
           },
           paymentIntent.id
         );

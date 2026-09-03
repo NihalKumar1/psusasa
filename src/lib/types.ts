@@ -45,7 +45,18 @@ export interface SanityEvent {
   isFeatured: boolean;
   ticketingEnabled?: boolean;
   cashPaymentEnabled?: boolean;
+  boardPlusOneEnabled?: boolean;
   ticketTypes?: TicketType[];
+}
+
+export interface BoardMemberPickerEntry {
+  _key: string;
+  firstName: string;
+  lastName: string;
+}
+
+export interface BoardMemberEntry extends BoardMemberPickerEntry {
+  psuEmail: string;
 }
 
 export interface Officer {

@@ -2,6 +2,7 @@ import type { StructureBuilder } from "sanity/structure";
 
 const SINGLETONS: ReadonlyArray<readonly [schemaType: string, title: string]> = [
   ["siteSettings", "Site Settings"],
+  ["boardMembers", "Board Members"],
   ["homePage", "Home Page"],
   ["aboutPage", "About Page"],
   ["joinPage", "Join Page"],

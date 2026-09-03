@@ -167,6 +167,15 @@ export default defineType({
       initialValue: true,
     }),
     defineField({
+      name: "boardPlusOneEnabled",
+      title: "Board +1 Check-In Enabled",
+      type: "boolean",
+      description:
+        "Turn on to let door staff register a board member's free +1 guest directly from the check-in board.",
+      hidden: ({ parent }) => !parent?.ticketingEnabled,
+      initialValue: false,
+    }),
+    defineField({
       name: "checkinPassword",
       title: "Door Check-In Password",
       type: "string",

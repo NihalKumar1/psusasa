@@ -76,6 +76,7 @@ export async function POST(req: NextRequest) {
           amountPaidCents: 0,
           paymentMethod: "Card",
           paid: true,
+          boardMemberName: null,
         },
         null
       );
