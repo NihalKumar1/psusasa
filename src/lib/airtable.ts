@@ -433,3 +433,54 @@ export async function updateTicketCheckinState(
     throw new Error(`Airtable update error: ${res.status} ${body}`);
   }
 }
+
+export interface BackfillMemberYearsResult {
+  scanned: number;
+  updated: number;
+  skipped: number;
+}
+
+// One-time migration: tickets bought before the "Member Year" column
+// existed have no value there. Looks up each member-priced row's PSU
+// Email in the Members table and fills it in. Safe to run more than
+// once — only touches rows that are still missing a value.
+export async function backfillMemberYears(): Promise<BackfillMemberYearsResult> {
+  const records = await fetchAllAirtableRecords(ticketsBaseUrl(), `{Is Member} = TRUE()`);
+
+  let updated = 0;
+  let skipped = 0;
+
+  for (const r of records) {
+    if (r.fields["Member Year"]) {
+      skipped++;
+      continue;
+    }
+
+    const psuEmail = String(r.fields["PSU Email"] ?? "").trim();
+    const { year } = psuEmail
+      ? await lookupCurrentMember(psuEmail)
+      : { year: null };
+    if (!year) {
+      skipped++;
+      continue;
+    }
+
+    const res = await fetch(`${ticketsBaseUrl()}/${r.id}`, {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bearer ${process.env.AIRTABLE_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ fields: { "Member Year": year } }),
+    });
+
+    if (res.ok) {
+      updated++;
+    } else {
+      console.error(`Backfill: failed to update ${r.id}: ${res.status} ${await res.text()}`);
+      skipped++;
+    }
+  }
+
+  return { scanned: records.length, updated, skipped };
+}
