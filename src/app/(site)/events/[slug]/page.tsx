@@ -9,6 +9,7 @@ import {
   allEventsQuery,
 } from "../../../../../sanity/lib/queries";
 import type { SanityEvent } from "@/lib/types";
+import { ticketSalesClosed } from "@/lib/eventTiming";
 
 interface EventPageProps {
   params: { slug: string };
@@ -230,7 +231,7 @@ export default async function EventDetailPage({ params }: EventPageProps) {
           </div>
 
           {/* Buy Tickets CTA */}
-          {event.ticketingEnabled && event.ticketTypes && event.ticketTypes.length > 0 && (
+          {event.ticketingEnabled && event.ticketTypes && event.ticketTypes.length > 0 && !ticketSalesClosed(event) && (
             <div className="mt-6">
               <Link
                 href={`/events/${params.slug}/tickets`}
