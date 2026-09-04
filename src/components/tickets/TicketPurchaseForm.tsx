@@ -644,6 +644,16 @@ export default function TicketPurchaseForm({
                 </p>
               </div>
             )}
+            {!cashPaymentEnabled && (
+              <div className="mt-2 rounded border border-amber-200 bg-amber-50 p-3">
+                <p className="text-xs text-amber-800">
+                  We&apos;ll still take cash at the door — it&apos;s just
+                  that only online orders reserve your spot in advance. If
+                  the event reaches capacity before you arrive, entry with
+                  cash at the door is not guaranteed.
+                </p>
+              </div>
+            )}
           </div>
 
           {submitError && (
