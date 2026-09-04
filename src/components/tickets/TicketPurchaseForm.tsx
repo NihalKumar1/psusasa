@@ -423,6 +423,22 @@ export default function TicketPurchaseForm({
                       non-member price.
                     </p>
                   )}
+                {!psuEmailWarning &&
+                  memberPricingCheck &&
+                  !memberPricingCheck.isMember && (
+                    <p className="mt-1 text-xs text-amber-600">
+                      We couldn&apos;t find a membership under this email —
+                      you&apos;ll be charged the non-member price. If you
+                      think this is a mistake, email{" "}
+                      <a
+                        href="mailto:exec.psusasa@gmail.com"
+                        className="underline"
+                      >
+                        exec.psusasa@gmail.com
+                      </a>
+                      .
+                    </p>
+                  )}
               </div>
 
               <div>
@@ -728,13 +744,19 @@ export default function TicketPurchaseForm({
           <h2 className="mb-2 font-heading text-xl font-bold text-sasa-red-900">
             You&apos;re confirmed — free!
           </h2>
-          <p className="text-sm text-sasa-neutral-500">
+          <p className="mb-4 text-sm text-sasa-neutral-500">
             {breakdownLabel(
               freeConfirmation.memberUnits,
               freeConfirmation.nonMemberUnits
             )}{" "}
             — no payment needed. A confirmation email is on its way.
           </p>
+          <div className="mx-auto max-w-sm rounded-lg border-2 border-sasa-gold-400 bg-sasa-gold-400/10 p-4">
+            <p className="text-sm font-bold text-sasa-red-900">
+              All you need at the door is your name — you don&apos;t need to
+              show a ticket or confirmation email.
+            </p>
+          </div>
         </div>
       )}
 
@@ -845,6 +867,12 @@ export default function TicketPurchaseForm({
                 </span>{" "}
                 cash to the door.
               </p>
+              <div className="mt-4 rounded-lg border-2 border-sasa-gold-400 bg-sasa-gold-400/10 p-4">
+                <p className="text-sm font-bold text-sasa-red-900">
+                  All you need at the door is your name — you don&apos;t need
+                  to show a ticket or confirmation email.
+                </p>
+              </div>
               <div className="mt-4 rounded border border-amber-200 bg-amber-50 p-3">
                 <p className="text-xs font-semibold text-amber-800">
                   No cash, no entry — you will not be admitted without

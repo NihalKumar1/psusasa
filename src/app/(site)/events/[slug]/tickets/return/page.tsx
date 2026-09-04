@@ -128,10 +128,17 @@ export default async function TicketsReturnPage({
                 {quantity}x {ticketTypeName}
               </h2>
               <p className="mb-1 text-sasa-neutral-500">{eventName}</p>
-              <p className="mb-6 text-sasa-neutral-500">
+              <p className="mb-4 text-sasa-neutral-500">
                 You paid {formatPrice(amountCents)} ({priceLabel}). A
                 confirmation email will be sent to the address you provided.
               </p>
+
+              <div className="mx-auto mb-6 max-w-sm rounded-lg border-2 border-sasa-gold-400 bg-sasa-gold-400/10 p-4">
+                <p className="text-sm font-bold text-sasa-red-900">
+                  All you need at the door is your name — you don&apos;t need
+                  to show a ticket or confirmation email.
+                </p>
+              </div>
 
               <div className="flex flex-col gap-3 sm:flex-row sm:justify-center">
                 <Link
