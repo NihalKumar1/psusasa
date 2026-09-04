@@ -4,10 +4,9 @@ import { resolveTicketOrder, TicketOrderError } from "@/lib/ticketing";
 import { computeCardFee } from "@/lib/fees";
 import { appendTicketToAirtable } from "@/lib/airtable";
 import { sendTicketConfirmationEmail } from "@/lib/ticketEmail";
+import { EMAIL_RE, isPsuEmail, PSU_CONTACT_EMAIL_ERROR } from "@/lib/email";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
-
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export async function POST(req: NextRequest) {
   try {
@@ -35,6 +34,12 @@ export async function POST(req: NextRequest) {
     if (!EMAIL_RE.test(trimmedEmail)) {
       return NextResponse.json(
         { error: "Please enter a valid contact email." },
+        { status: 400 }
+      );
+    }
+    if (isPsuEmail(trimmedEmail)) {
+      return NextResponse.json(
+        { error: PSU_CONTACT_EMAIL_ERROR },
         { status: 400 }
       );
     }

@@ -10,6 +10,7 @@ import {
 } from "@stripe/react-stripe-js";
 import { computeCardFee } from "@/lib/fees";
 import { breakdownLabel } from "@/lib/ticketLabels";
+import { EMAIL_RE, isPsuEmail, PSU_CONTACT_EMAIL_ERROR } from "@/lib/email";
 
 const stripePromise = loadStripe(
   process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!
@@ -139,8 +140,11 @@ export default function TicketPurchaseForm({
     const next: Record<string, string> = {};
     if (!firstName.trim()) next.firstName = "First name is required.";
     if (!lastName.trim()) next.lastName = "Last name is required.";
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactEmail.trim())) {
+    const trimmedContact = contactEmail.trim();
+    if (!EMAIL_RE.test(trimmedContact)) {
       next.contactEmail = "Please enter a valid email.";
+    } else if (isPsuEmail(trimmedContact)) {
+      next.contactEmail = PSU_CONTACT_EMAIL_ERROR;
     }
     if (!ticketTypeKey) next.ticketTypeKey = "Please select a ticket type.";
     if (
@@ -324,7 +328,10 @@ export default function TicketPurchaseForm({
 
               <div>
                 <label className="block text-sm font-medium text-sasa-red-900 mb-1">
-                  Contact Email <span className="text-red-500">*</span>
+                  Personal Email <span className="text-red-500">*</span>{" "}
+                  <span className="font-normal text-sasa-neutral-400">
+                    (NOT PSU email)
+                  </span>
                 </label>
                 <input
                   type="email"
