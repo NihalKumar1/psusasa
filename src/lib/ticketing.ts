@@ -1,6 +1,7 @@
 import { sanityFetchSingle } from "../../sanity/lib/client";
 import { eventByIdQuery } from "../../sanity/lib/queries";
 import type { SanityEvent, TicketType } from "@/lib/types";
+import { ticketSalesClosed } from "@/lib/eventTiming";
 import {
   hasUsedMemberPricing,
   lookupCurrentMember,
@@ -70,6 +71,11 @@ export async function resolveTicketOrder({
   if (!event) throw new TicketOrderError("Event not found.", 404);
   if (!event.ticketingEnabled) {
     throw new TicketOrderError("Ticket sales are not open for this event.");
+  }
+  // The authoritative date gate. The UI hides the entry points too, but this
+  // is the one that matters — the purchase routes are reachable directly.
+  if (ticketSalesClosed(event)) {
+    throw new TicketOrderError("Ticket sales for this event have closed.");
   }
 
   const ticketType = event.ticketTypes?.find((t) => t._key === ticketTypeKey);

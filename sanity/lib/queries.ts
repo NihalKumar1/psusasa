@@ -33,7 +33,10 @@ export const eventByIdQuery = `*[_type == "event" && _id == $id][0] {
   "category": category->{ _id, name, color }
 }`;
 
-export const ticketedEventsQuery = `*[_type == "event" && ticketingEnabled == true] | order(date desc) {
+// $cutoff keeps the door tool's picker to events staff could plausibly be
+// working — without it the list grows by every ticketed event ever, forever,
+// and the one you want sinks further down the page each semester.
+export const ticketedEventsQuery = `*[_type == "event" && ticketingEnabled == true && coalesce(endDate, date) > $cutoff] | order(date desc) {
   _id, title, date
 }`;
 

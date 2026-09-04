@@ -8,6 +8,7 @@ import { eventBySlugQuery } from "../../../../../../sanity/lib/queries";
 import { urlFor } from "../../../../../../sanity/lib/image";
 import type { SanityEvent } from "@/lib/types";
 import { sumSoldTicketQuantity } from "@/lib/airtable";
+import { ticketSalesClosed } from "@/lib/eventTiming";
 import type { TicketTypeOption } from "@/components/tickets/TicketPurchaseForm";
 
 const TicketPurchaseForm = dynamicImport(
@@ -46,23 +47,32 @@ export default async function EventTicketsPage({ params }: TicketsPageProps) {
     notFound();
   }
 
-  const ticketTypes: TicketTypeOption[] = await Promise.all(
-    ticketTypesList.map(async (t) => {
-      let remaining: number | null = null;
-      if (typeof t.capacity === "number") {
-        const sold = await sumSoldTicketQuantity(event._id, t._key);
-        remaining = Math.max(0, t.capacity - sold);
-      }
-      return {
-        _key: t._key,
-        name: t.name,
-        memberPriceCents: t.memberPriceCents,
-        nonMemberPriceCents: t.nonMemberPriceCents,
-        salesOpen: t.salesOpen !== false,
-        remaining,
-      };
-    })
-  );
+  // A deliberate page rather than notFound(): this link gets texted around and
+  // posted, and a bare 404 on it reads as a broken site rather than a closed
+  // sale. The purchase routes enforce the same cutoff regardless.
+  const salesClosed = ticketSalesClosed(event);
+
+  // Skip the capacity lookups when nothing will render them — each one is a
+  // paginated Airtable round trip, per ticket type, on a force-dynamic page.
+  const ticketTypes: TicketTypeOption[] = salesClosed
+    ? []
+    : await Promise.all(
+        ticketTypesList.map(async (t) => {
+          let remaining: number | null = null;
+          if (typeof t.capacity === "number") {
+            const sold = await sumSoldTicketQuantity(event._id, t._key);
+            remaining = Math.max(0, t.capacity - sold);
+          }
+          return {
+            _key: t._key,
+            name: t.name,
+            memberPriceCents: t.memberPriceCents,
+            nonMemberPriceCents: t.nonMemberPriceCents,
+            salesOpen: t.salesOpen !== false,
+            remaining,
+          };
+        })
+      );
 
   const TIME_ZONE = "America/New_York";
   const start = new Date(event.date);
@@ -160,12 +170,30 @@ export default async function EventTicketsPage({ params }: TicketsPageProps) {
 
       <section className="bg-gray-50 py-16">
         <div className="mx-auto max-w-2xl px-4 sm:px-6 lg:px-8">
-          <TicketPurchaseForm
-            eventId={event._id}
-            eventSlug={params.slug}
-            ticketTypes={ticketTypes}
-            cashPaymentEnabled={event.cashPaymentEnabled !== false}
-          />
+          {salesClosed ? (
+            <div className="rounded-xl border border-gray-200 bg-white p-8 text-center">
+              <h2 className="font-heading text-2xl font-bold text-sasa-red-900">
+                Ticket sales have closed
+              </h2>
+              <p className="mt-3 text-sm text-sasa-neutral-500">
+                Online sales for {event.title} are over. Keep an eye on our
+                upcoming events — we&apos;d love to see you at the next one.
+              </p>
+              <Link
+                href="/events"
+                className="mt-6 inline-block rounded bg-sasa-red-900 px-6 py-3 text-sm font-semibold text-white transition-colors hover:bg-sasa-red-700"
+              >
+                See Upcoming Events
+              </Link>
+            </div>
+          ) : (
+            <TicketPurchaseForm
+              eventId={event._id}
+              eventSlug={params.slug}
+              ticketTypes={ticketTypes}
+              cashPaymentEnabled={event.cashPaymentEnabled !== false}
+            />
+          )}
         </div>
       </section>
     </div>
