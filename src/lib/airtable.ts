@@ -58,10 +58,13 @@ export async function lookupCurrentMember(psuEmail: string): Promise<CurrentMemb
 // lets both calls pass the check before either insert lands — Airtable's
 // upsert does the match-or-create as one atomic server-side operation,
 // so no duplicate row can be created no matter how the two calls overlap.
+// Returns whether this call actually created a new row (vs. merging into an
+// existing one) — callers use `inserted` to make sure the confirmation email
+// only goes out once, from whichever of the two wins the race.
 export async function appendMemberToAirtable(
   metadata: Record<string, string>,
   paymentIntentId: string
-) {
+): Promise<{ inserted: boolean }> {
   const tableName = process.env.AIRTABLE_TABLE_NAME ?? "Members";
   const baseUrl = `https://api.airtable.com/v0/${process.env.AIRTABLE_BASE_ID}/${encodeURIComponent(tableName)}`;
 
@@ -108,7 +111,14 @@ export async function appendMemberToAirtable(
     throw new Error(`Airtable error: ${res.status} ${body}`);
   }
 
-  console.log(`Member ${metadata.psuEmail} upserted in Airtable`);
+  const data = (await res.json()) as { createdRecords?: string[] };
+  const inserted = (data.createdRecords?.length ?? 0) > 0;
+  console.log(
+    inserted
+      ? `Member ${metadata.psuEmail} added to Airtable`
+      : `Member ${metadata.psuEmail} already in Airtable (${paymentIntentId})`
+  );
+  return { inserted };
 }
 
 // --- Tickets table -----------------------------------------------------------

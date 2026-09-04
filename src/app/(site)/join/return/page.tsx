@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import Stripe from "stripe";
 import { appendMemberToAirtable } from "@/lib/airtable";
+import { sendMembershipConfirmationEmail } from "@/lib/membershipEmail";
 import ClearSavedForm from "@/components/join/ClearSavedForm";
 import PortableTextRenderer from "@/components/sanity/PortableTextRenderer";
 import { sanityFetchSingle } from "../../../../../sanity/lib/client";
@@ -181,7 +182,20 @@ export default async function JoinReturnPage({
   // pasted into this URL would grant them membership (and member pricing).
   if (isComplete && paymentIntent?.metadata.purchaseType === "membership") {
     try {
-      await appendMemberToAirtable(paymentIntent.metadata, paymentIntent.id);
+      const { inserted } = await appendMemberToAirtable(
+        paymentIntent.metadata,
+        paymentIntent.id
+      );
+      // `inserted` is false when the webhook already fulfilled this signup,
+      // so the welcome email goes out exactly once regardless of which of
+      // the two lands first.
+      if (inserted) {
+        await sendMembershipConfirmationEmail({
+          psuEmail: paymentIntent.metadata.psuEmail ?? "",
+          firstName: paymentIntent.metadata.firstName ?? "",
+          amountPaidCents: paymentIntent.amount,
+        });
+      }
     } catch (err) {
       console.error("Airtable write failed:", err);
     }
