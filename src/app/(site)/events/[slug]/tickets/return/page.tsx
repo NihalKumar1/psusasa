@@ -3,6 +3,7 @@ import Link from "next/link";
 import Stripe from "stripe";
 import { appendTicketToAirtable } from "@/lib/airtable";
 import { sendTicketConfirmationEmail } from "@/lib/ticketEmail";
+import { breakdownLabel } from "@/lib/ticketLabels";
 
 export const metadata: Metadata = {
   title: "Tickets | SASA at Penn State",
@@ -48,14 +49,13 @@ export default async function TicketsReturnPage({
   const eventName = m.eventName ?? "your event";
   const ticketTypeName = m.ticketTypeName ?? "Ticket";
   const quantity = Number(m.quantity) || 1;
-  const memberUnits = Number(m.memberUnits) || 0;
-  const nonMemberUnits = Number(m.nonMemberUnits) || quantity;
-  const priceLabel = [
-    memberUnits > 0 ? `${memberUnits} at member price` : null,
-    nonMemberUnits > 0 ? `${nonMemberUnits} at non-member price` : null,
-  ]
-    .filter(Boolean)
-    .join(" + ");
+  // "0" is falsy, so presence has to be tested before defaulting — a member
+  // buying a single ticket sends nonMemberUnits="0", which must not fall back
+  // to `quantity` and claim a non-member ticket that was never charged.
+  const hasSplit = m.memberUnits !== undefined || m.nonMemberUnits !== undefined;
+  const memberUnits = hasSplit ? Number(m.memberUnits) || 0 : 0;
+  const nonMemberUnits = hasSplit ? Number(m.nonMemberUnits) || 0 : quantity;
+  const priceLabel = breakdownLabel(memberUnits, nonMemberUnits);
 
   // Requires the ticket tag, not just any succeeded payment — the id comes
   // from the query string, so an unguarded write would record a ticket for
@@ -133,8 +133,9 @@ export default async function TicketsReturnPage({
               </h2>
               <p className="mb-1 text-sasa-neutral-500">{eventName}</p>
               <p className="mb-6 text-sasa-neutral-500">
-                You paid {formatPrice(amountCents)} ({priceLabel}). A
-                confirmation email will be sent to the address you provided.
+                You paid {formatPrice(amountCents)}
+                {priceLabel ? ` (${priceLabel})` : ""}. A confirmation email
+                will be sent to the address you provided.
               </p>
 
               <div className="flex flex-col gap-3 sm:flex-row sm:justify-center">

@@ -9,6 +9,7 @@ import {
   useElements,
 } from "@stripe/react-stripe-js";
 import { computeCardFee } from "@/lib/fees";
+import { breakdownLabel } from "@/lib/ticketLabels";
 
 const stripePromise = loadStripe(
   process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!
@@ -39,20 +40,6 @@ interface TicketPurchaseFormProps {
 
 function formatPrice(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
-}
-
-// Deliberately text-only (not computed dollar amounts) — the authoritative
-// total always comes from the server response, so this can't ever be shown
-// alongside a breakdown that doesn't sum to it.
-function breakdownLabel(memberUnits: number, nonMemberUnits: number): string {
-  const parts: string[] = [];
-  if (memberUnits > 0) {
-    parts.push(`${memberUnits} ticket${memberUnits === 1 ? "" : "s"} at member price`);
-  }
-  if (nonMemberUnits > 0) {
-    parts.push(`${nonMemberUnits} ticket${nonMemberUnits === 1 ? "" : "s"} at non-member price`);
-  }
-  return parts.join(" + ");
 }
 
 export default function TicketPurchaseForm({
