@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { appendMemberToAirtable, appendTicketToAirtable } from "@/lib/airtable";
 import { addMemberToGroupMe } from "@/lib/groupme";
 import { sendTicketConfirmationEmail } from "@/lib/ticketEmail";
+import { sendMembershipConfirmationEmail } from "@/lib/membershipEmail";
 import { formatPrice, sendAdminAlert } from "@/lib/adminAlert";
 
 export const runtime = "nodejs";
@@ -115,9 +116,26 @@ export async function POST(req: NextRequest) {
           });
         }
       } else if (metadata.purchaseType === "membership") {
-        await appendMemberToAirtable(metadata, paymentIntent.id);
+        const { inserted } = await appendMemberToAirtable(
+          metadata,
+          paymentIntent.id
+        );
+
+        // Same guard as the ticket branch above: the webhook and the
+        // /join/return page both fulfill this signup, and `inserted` is
+        // false for whichever one loses the race — so the member is
+        // welcomed exactly once.
+        if (inserted) {
+          await sendMembershipConfirmationEmail({
+            psuEmail: metadata.psuEmail ?? "",
+            firstName: metadata.firstName ?? "",
+            amountPaidCents: paymentIntent.amount,
+          });
+        }
+
         // GroupMe failure must not block the 200 response — it self-handles
-        // errors by emailing the admin.
+        // errors by emailing the admin. Kept outside the email's control
+        // flow so neither one failing can skip the other.
         try {
           await addMemberToGroupMe(metadata, paymentIntent.id);
         } catch (err) {
