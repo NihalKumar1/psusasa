@@ -57,7 +57,10 @@ export default async function TicketsReturnPage({
     .filter(Boolean)
     .join(" + ");
 
-  if (isComplete) {
+  // Requires the ticket tag, not just any succeeded payment — the id comes
+  // from the query string, so an unguarded write would record a ticket for
+  // whatever payment was named here (see the same guard on /join/return).
+  if (isComplete && m.purchaseType === "ticket") {
     try {
       const { inserted } = await appendTicketToAirtable(
         {
