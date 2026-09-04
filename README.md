@@ -80,6 +80,21 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000) for the website and [http://localhost:3000/studio](http://localhost:3000/studio) for the Sanity CMS.
 
+### 4. Checks
+
+```bash
+npm run lint       # next lint
+npm run typecheck  # tsc --noEmit
+npm test           # vitest
+```
+
+All three run on every pull request via [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
+
+Tests cover the pure, money- and auth-affecting helpers in `src/lib` — the Stripe fee
+gross-up, the PSU-email rule, the ticket breakdown label, and check-in session signing.
+They need no API keys or network. Anything that talks to Stripe, Airtable, Sanity, or
+Resend is still verified by hand against the real services.
+
 ## Project Structure
 
 ```
