@@ -18,8 +18,9 @@ function formatPrice(cents: number): string {
 // the list" confirmation in the browser at checkout). Best-effort: a
 // failure here is logged, not thrown — it must never block fulfillment,
 // which is already recorded in Airtable by the time this is called.
-// Returns whether the send actually succeeded, so callers that care (a
-// backfill, say) can report real results instead of assuming.
+// Returns whether the send actually succeeded, so a caller that cares can
+// report real results instead of assuming. No caller checks it today; it
+// stays because "assumed sent" is precisely what hid the 403 outage.
 export async function sendTicketConfirmationEmail(
   details: TicketConfirmationDetails
 ): Promise<boolean> {
