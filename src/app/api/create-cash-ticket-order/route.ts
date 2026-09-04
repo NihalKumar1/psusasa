@@ -2,8 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { resolveTicketOrder, TicketOrderError } from "@/lib/ticketing";
 import { appendTicketToAirtable } from "@/lib/airtable";
 import { sendTicketConfirmationEmail } from "@/lib/ticketEmail";
-
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+import { EMAIL_RE, isPsuEmail, PSU_CONTACT_EMAIL_ERROR } from "@/lib/email";
 
 export async function POST(req: NextRequest) {
   try {
@@ -31,6 +30,12 @@ export async function POST(req: NextRequest) {
     if (!EMAIL_RE.test(trimmedEmail)) {
       return NextResponse.json(
         { error: "Please enter a valid contact email." },
+        { status: 400 }
+      );
+    }
+    if (isPsuEmail(trimmedEmail)) {
+      return NextResponse.json(
+        { error: PSU_CONTACT_EMAIL_ERROR },
         { status: 400 }
       );
     }

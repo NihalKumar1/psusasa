@@ -10,6 +10,7 @@ import {
 } from "@stripe/react-stripe-js";
 import { computeCardFee } from "@/lib/fees";
 import { breakdownLabel } from "@/lib/ticketLabels";
+import { EMAIL_RE, isPsuEmail, PSU_CONTACT_EMAIL_ERROR } from "@/lib/email";
 
 const stripePromise = loadStripe(
   process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!
@@ -18,6 +19,11 @@ const stripePromise = loadStripe(
 // Must match MAX_TICKETS_PER_ORDER in src/lib/ticketing.ts — that's the
 // value actually enforced server-side; this only bounds the input client-side.
 const MAX_TICKETS_PER_ORDER = 10;
+
+// A member-pricing lookup needs the bare university domain — unlike
+// isPsuEmail() in @/lib/email, which is a suffix test that also matches
+// subdomains.
+const PSU_MEMBER_EMAIL_RE = /^[^\s@]+@psu\.edu$/i;
 
 type PaymentMethod = "card" | "cash";
 type Step = 1 | 2;
@@ -61,7 +67,6 @@ export default function TicketPurchaseForm({
   const [lastName, setLastName] = useState("");
   const [contactEmail, setContactEmail] = useState("");
   const [psuEmail, setPsuEmail] = useState("");
-  const [psuEmailWarning, setPsuEmailWarning] = useState<string | null>(null);
   const [memberPricingCheck, setMemberPricingCheck] = useState<{
     isMember: boolean;
     alreadyUsed: boolean;
@@ -70,7 +75,10 @@ export default function TicketPurchaseForm({
   const [ticketTypeKey, setTicketTypeKey] = useState(purchasable[0]?._key ?? "");
   const [additionalQuantity, setAdditionalQuantity] = useState(0);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("card");
-  const [errors, setErrors] = useState<Record<string, string>>({});
+  // Which fields have earned the right to show their error yet. The errors
+  // themselves are computed continuously below; this only controls when they
+  // become visible, so the form never shouts at a field mid-typing.
+  const [revealed, setRevealed] = useState<Record<string, boolean>>({});
 
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -114,7 +122,7 @@ export default function TicketPurchaseForm({
   // falls back to a format-only guess; once it resolves, it's authoritative
   // over the guess, since it also knows whether this email already used its
   // one member-priced ticket for this event, which the format check can't.
-  const psuEmailLooksLikeMember = /^[^\s@]+@psu\.edu$/i.test(psuEmail.trim());
+  const psuEmailLooksLikeMember = PSU_MEMBER_EMAIL_RE.test(psuEmail.trim());
   const eligibleForMemberPrice = memberPricingCheck
     ? memberPricingCheck.isMember && !memberPricingCheck.alreadyUsed
     : psuEmailLooksLikeMember;
@@ -135,13 +143,31 @@ export default function TicketPurchaseForm({
       : 0;
   const estimatedTotalCents = estimatedSubtotalCents + estimatedFeeCents;
 
-  function validateStep1(): boolean {
+  // The single source of truth for whether step 1 can be submitted. Recomputed
+  // every render, so the Continue button and every message below stay in sync
+  // with what the buyer has actually typed.
+  const step1Errors = useMemo(() => {
     const next: Record<string, string> = {};
     if (!firstName.trim()) next.firstName = "First name is required.";
     if (!lastName.trim()) next.lastName = "Last name is required.";
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactEmail.trim())) {
+
+    const trimmedContact = contactEmail.trim();
+    if (!trimmedContact) {
+      next.contactEmail = "Email is required.";
+    } else if (!EMAIL_RE.test(trimmedContact)) {
       next.contactEmail = "Please enter a valid email.";
+    } else if (isPsuEmail(trimmedContact)) {
+      next.contactEmail = PSU_CONTACT_EMAIL_ERROR;
     }
+
+    // Optional — leaving it blank just means non-member pricing. But a
+    // half-typed address would silently cost the buyer money, so it blocks.
+    const trimmedPsu = psuEmail.trim();
+    if (trimmedPsu && !PSU_MEMBER_EMAIL_RE.test(trimmedPsu)) {
+      next.psuEmail =
+        "That doesn't look like a @psu.edu address — fix it, or clear the field to pay the non-member price.";
+    }
+
     if (!ticketTypeKey) next.ticketTypeKey = "Please select a ticket type.";
     if (
       !Number.isInteger(additionalQuantity) ||
@@ -150,12 +176,57 @@ export default function TicketPurchaseForm({
     ) {
       next.additionalQuantity = `Please choose between 0 and ${maxAdditionalQuantity} additional tickets.`;
     }
-    setErrors(next);
-    return Object.keys(next).length === 0;
+    return next;
+  }, [
+    firstName,
+    lastName,
+    contactEmail,
+    psuEmail,
+    ticketTypeKey,
+    additionalQuantity,
+    maxAdditionalQuantity,
+  ]);
+
+  const isStep1Valid = Object.keys(step1Errors).length === 0;
+
+  // Stop revealing a field the moment it becomes valid. Un-revealing (rather
+  // than just hiding) means a *new* error never appears mid-typing: fix the
+  // field and the message goes; break it again and the form stays quiet until
+  // the next blur or Continue click. Returning `prev` unchanged keeps the
+  // reference stable so this can't loop.
+  useEffect(() => {
+    setRevealed((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const field of Object.keys(prev)) {
+        if (!step1Errors[field]) {
+          delete next[field];
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [step1Errors]);
+
+  function reveal(field: string) {
+    setRevealed((prev) => ({ ...prev, [field]: true }));
   }
 
+  // The PSU-address error shows the instant it applies — a completed @psu.edu
+  // ending is unambiguous, unlike a half-typed address, which waits for blur.
+  const contactEmailError = isPsuEmail(contactEmail)
+    ? PSU_CONTACT_EMAIL_ERROR
+    : revealed.contactEmail
+      ? step1Errors.contactEmail
+      : undefined;
+
   async function goToStep2() {
-    if (!validateStep1()) return;
+    if (!isStep1Valid) {
+      setRevealed(
+        Object.fromEntries(Object.keys(step1Errors).map((f) => [f, true]))
+      );
+      return;
+    }
     setSubmitError(null);
     setStep(2);
     setSubmitting(true);
@@ -300,10 +371,13 @@ export default function TicketPurchaseForm({
                     type="text"
                     value={firstName}
                     onChange={(e) => setFirstName(e.target.value)}
+                    onBlur={() => reveal("firstName")}
                     className="w-full rounded border border-gray-300 px-3 py-2 text-sm focus:border-sasa-red-900 focus:outline-none focus:ring-1 focus:ring-sasa-red-900"
                   />
-                  {errors.firstName && (
-                    <p className="mt-1 text-xs text-red-500">{errors.firstName}</p>
+                  {revealed.firstName && step1Errors.firstName && (
+                    <p className="mt-1 text-xs text-red-500">
+                      {step1Errors.firstName}
+                    </p>
                   )}
                 </div>
                 <div>
@@ -314,27 +388,42 @@ export default function TicketPurchaseForm({
                     type="text"
                     value={lastName}
                     onChange={(e) => setLastName(e.target.value)}
+                    onBlur={() => reveal("lastName")}
                     className="w-full rounded border border-gray-300 px-3 py-2 text-sm focus:border-sasa-red-900 focus:outline-none focus:ring-1 focus:ring-sasa-red-900"
                   />
-                  {errors.lastName && (
-                    <p className="mt-1 text-xs text-red-500">{errors.lastName}</p>
+                  {revealed.lastName && step1Errors.lastName && (
+                    <p className="mt-1 text-xs text-red-500">
+                      {step1Errors.lastName}
+                    </p>
                   )}
                 </div>
               </div>
 
               <div>
                 <label className="block text-sm font-medium text-sasa-red-900 mb-1">
-                  Contact Email <span className="text-red-500">*</span>
+                  Personal Email <span className="text-red-500">*</span>{" "}
+                  <span className="font-normal text-sasa-neutral-400">
+                    (NOT PSU email)
+                  </span>
                 </label>
                 <input
                   type="email"
                   value={contactEmail}
                   onChange={(e) => setContactEmail(e.target.value)}
+                  onBlur={() => {
+                    // Blurring a field the buyer never filled in shouldn't
+                    // yell at them — the Continue button already conveys it.
+                    if (contactEmail.trim()) reveal("contactEmail");
+                  }}
                   placeholder="Your receipt and confirmation go here"
-                  className="w-full rounded border border-gray-300 px-3 py-2 text-sm focus:border-sasa-red-900 focus:outline-none focus:ring-1 focus:ring-sasa-red-900"
+                  className={`w-full rounded border px-3 py-2 text-sm focus:outline-none focus:ring-1 ${
+                    contactEmailError
+                      ? "border-red-400 focus:border-red-500 focus:ring-red-500"
+                      : "border-gray-300 focus:border-sasa-red-900 focus:ring-sasa-red-900"
+                  }`}
                 />
-                {errors.contactEmail && (
-                  <p className="mt-1 text-xs text-red-500">{errors.contactEmail}</p>
+                {contactEmailError && (
+                  <p className="mt-1 text-xs text-red-500">{contactEmailError}</p>
                 )}
               </div>
 
@@ -357,12 +446,8 @@ export default function TicketPurchaseForm({
                   }}
                   onBlur={async () => {
                     const trimmed = psuEmail.trim();
-                    const looksValid = /^[^\s@]+@psu\.edu$/i.test(trimmed);
-                    setPsuEmailWarning(
-                      trimmed && !looksValid
-                        ? "That doesn't look like a @psu.edu address — you'll be charged the non-member price unless you fix it."
-                        : null
-                    );
+                    const looksValid = PSU_MEMBER_EMAIL_RE.test(trimmed);
+                    if (trimmed) reveal("psuEmail");
 
                     if (!looksValid) {
                       setMemberPricingCheck(null);
@@ -391,17 +476,23 @@ export default function TicketPurchaseForm({
                     }
                   }}
                   placeholder="you@psu.edu"
-                  className="w-full rounded border border-gray-300 px-3 py-2 text-sm focus:border-sasa-red-900 focus:outline-none focus:ring-1 focus:ring-sasa-red-900"
+                  className={`w-full rounded border px-3 py-2 text-sm focus:outline-none focus:ring-1 ${
+                    revealed.psuEmail && step1Errors.psuEmail
+                      ? "border-red-400 focus:border-red-500 focus:ring-red-500"
+                      : "border-gray-300 focus:border-sasa-red-900 focus:ring-sasa-red-900"
+                  }`}
                 />
                 {checkingMemberPricing && (
                   <p className="mt-1 text-xs text-sasa-neutral-400">
                     Checking membership status...
                   </p>
                 )}
-                {psuEmailWarning && (
-                  <p className="mt-1 text-xs text-amber-600">{psuEmailWarning}</p>
+                {revealed.psuEmail && step1Errors.psuEmail && (
+                  <p className="mt-1 text-xs text-red-500">
+                    {step1Errors.psuEmail}
+                  </p>
                 )}
-                {!psuEmailWarning &&
+                {!step1Errors.psuEmail &&
                   memberPricingCheck?.isMember &&
                   memberPricingCheck.alreadyUsed && (
                     <p className="mt-1 text-xs text-amber-600">
@@ -469,8 +560,10 @@ export default function TicketPurchaseForm({
                     );
                   })}
                 </div>
-                {errors.ticketTypeKey && (
-                  <p className="mt-1 text-xs text-red-500">{errors.ticketTypeKey}</p>
+                {revealed.ticketTypeKey && step1Errors.ticketTypeKey && (
+                  <p className="mt-1 text-xs text-red-500">
+                    {step1Errors.ticketTypeKey}
+                  </p>
                 )}
               </div>
             </div>
@@ -519,8 +612,10 @@ export default function TicketPurchaseForm({
                 +
               </button>
             </div>
-            {errors.additionalQuantity && (
-              <p className="mt-1 text-xs text-red-500">{errors.additionalQuantity}</p>
+            {revealed.additionalQuantity && step1Errors.additionalQuantity && (
+              <p className="mt-1 text-xs text-red-500">
+                {step1Errors.additionalQuantity}
+              </p>
             )}
           </div>
 
@@ -692,8 +787,8 @@ export default function TicketPurchaseForm({
           <div className="flex justify-end">
             <button
               onClick={goToStep2}
-              disabled={submitting}
-              className="rounded-lg bg-sasa-red-900 px-8 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-sasa-red-700 disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={submitting || !isStep1Valid}
+              className="rounded-lg bg-sasa-red-900 px-8 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-sasa-red-700 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-sasa-red-900"
             >
               {submitting ? "Please wait..." : "Continue →"}
             </button>
