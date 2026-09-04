@@ -403,3 +403,76 @@ export async function updateTicketCheckinState(
   }
 }
 
+/** A row still owed its confirmation email. Deliberately not TicketRecord —
+ *  that type serves the check-in board and carries no "Event Name", which the
+ *  email body needs. */
+export interface PendingConfirmation {
+  id: string;
+  firstName: string;
+  contactEmail: string;
+  eventName: string;
+  ticketTypeName: string;
+  quantity: number;
+  amountPaidCents: number;
+}
+
+// Rows that should have received a confirmation email but haven't. The
+// selection lives in the formula so the caller's "remaining" count is
+// meaningful and converges to zero rather than re-listing rows it will
+// always skip:
+//   - Contact Email != ''  excludes board +1 guest rows, which are created
+//     with no email and never had one.
+//   - Paid  excludes cash orders still owing money at the door — those are
+//     correctly unemailed by design, and "Amount paid" would be a lie. Card,
+//     $0, and already-collected cash orders all write Paid = true.
+// Returns every outstanding row, not a page — the caller slices to its
+// per-run limit, so it can report an accurate "remaining" alongside what it
+// actually attempted.
+export async function listTicketsAwaitingConfirmation(): Promise<
+  PendingConfirmation[]
+> {
+  const formula = `AND(NOT({Confirmation Sent}), {Contact Email} != '', {Paid})`;
+  const records = await fetchAllAirtableRecords(ticketsBaseUrl(), formula);
+
+  return records.map((r): PendingConfirmation => {
+    const f = r.fields;
+    return {
+      id: r.id,
+      firstName: String(f["First Name"] ?? ""),
+      contactEmail: String(f["Contact Email"] ?? ""),
+      eventName: String(f["Event Name"] ?? ""),
+      ticketTypeName: String(f["Ticket Type Name"] ?? ""),
+      quantity: Number(f["Quantity"]) || 0,
+      amountPaidCents: Math.round((Number(f["Amount Paid"]) || 0) * 100),
+    };
+  });
+}
+
+// Marks rows as emailed. Airtable caps batch writes at 10 records per
+// request, so this chunks — callers flush as they go rather than once at the
+// end, so a timeout mid-run loses at most one chunk's worth of marks and the
+// next run re-sends only those.
+export async function markConfirmationSent(recordIds: string[]): Promise<void> {
+  for (let i = 0; i < recordIds.length; i += 10) {
+    const chunk = recordIds.slice(i, i + 10);
+    const res = await fetch(ticketsBaseUrl(), {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bearer ${process.env.AIRTABLE_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        records: chunk.map((id) => ({
+          id,
+          fields: { "Confirmation Sent": true },
+        })),
+      }),
+    });
+
+    if (!res.ok) {
+      const body = await res.text();
+      throw new Error(`Airtable mark-sent error: ${res.status} ${body}`);
+    }
+  }
+}
+
