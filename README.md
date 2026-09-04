@@ -46,7 +46,8 @@ AIRTABLE_TICKETS_TABLE_NAME=Tickets  # optional, defaults to "Tickets"
 GROUPME_ACCESS_TOKEN=...
 GROUPME_GROUP_ID=...
 
-# Resend (admin notification email when GroupMe auto-add falls through)
+# Resend (ticket confirmation emails to buyers, plus an admin notification
+# when GroupMe auto-add falls through)
 RESEND_API_KEY=re_...
 ADMIN_NOTIFICATION_EMAIL=exec.psusasa@gmail.com
 
@@ -59,6 +60,15 @@ To get your Sanity project ID:
 1. Go to [sanity.io/manage](https://www.sanity.io/manage)
 2. Create a new project (or use an existing one)
 3. Copy the Project ID from the project settings
+
+> **Warning — the sending domain must stay verified in Resend.** The `from` addresses live in
+> [`src/lib/emailSender.ts`](src/lib/emailSender.ts) and must be on a domain verified at
+> [resend.com/domains](https://resend.com/domains) (currently `psusasa.com`). Sending from an
+> unverified or shared domain — including Resend's `onboarding@resend.dev` testing sender —
+> returns a **403 for every recipient except the Resend account owner's own address**. That
+> failure is easy to miss: it silently affects only real users, never you. If confirmation
+> emails stop arriving, check [resend.com/logs](https://resend.com/logs) first — a 403 never
+> creates a record on the Emails page, so an empty Emails list is itself the symptom.
 
 > **Note:** Sanity, Stripe webhook secret, and Resend can be skipped for read-only local browsing of pre-existing content, but anything involving the `/join` flow (membership form, payment, post-payment redirect) requires the full Stripe + Airtable + GroupMe stack to work end-to-end. Same goes for the ticketing flow (`/events/[slug]/tickets`) and the `/checkin` door tool — both need Stripe + Airtable configured, and `/checkin` additionally needs `CHECKIN_SESSION_SECRET` set.
 

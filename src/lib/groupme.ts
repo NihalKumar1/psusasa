@@ -1,4 +1,5 @@
 import { Resend } from "resend";
+import { MEMBERSHIP_FROM } from "@/lib/emailSender";
 
 interface GroupMeAddResponse {
   response?: {
@@ -70,8 +71,10 @@ async function emailAdminFailure(
   const name = `${metadata.firstName ?? ""} ${metadata.lastName ?? ""}`.trim();
 
   try {
-    await resend.emails.send({
-      from: "SASA Membership <onboarding@resend.dev>",
+    // As in ticketEmail.ts: the SDK reports API errors through `error`, not
+    // by throwing, so this has to be checked or a rejected send is silent.
+    const { error } = await resend.emails.send({
+      from: MEMBERSHIP_FROM,
       to,
       subject: `Manual GroupMe invite needed: ${name || metadata.psuEmail}`,
       text: [
@@ -87,6 +90,12 @@ async function emailAdminFailure(
         `They are recorded in Airtable. Please invite them manually from the GroupMe app.`,
       ].join("\n"),
     });
+
+    if (error) {
+      console.error(
+        `Admin GroupMe failure email NOT sent to ${to} — ${error.name}: ${error.message}`
+      );
+    }
   } catch (err) {
     console.error("Failed to send admin failure email:", err);
   }
