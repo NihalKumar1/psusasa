@@ -1,5 +1,4 @@
-import { Resend } from "resend";
-import { MEMBERSHIP_FROM } from "@/lib/emailSender";
+import { sendAdminAlert } from "@/lib/adminAlert";
 
 interface GroupMeAddResponse {
   response?: {
@@ -57,48 +56,23 @@ async function emailAdminFailure(
   paymentIntentId: string,
   reason: string
 ) {
-  const apiKey = process.env.RESEND_API_KEY;
-  const to = process.env.ADMIN_NOTIFICATION_EMAIL;
-
-  if (!apiKey || !to) {
-    console.error(
-      "Cannot send GroupMe failure email — RESEND_API_KEY or ADMIN_NOTIFICATION_EMAIL not set."
-    );
-    return;
-  }
-
-  const resend = new Resend(apiKey);
   const name = `${metadata.firstName ?? ""} ${metadata.lastName ?? ""}`.trim();
 
-  try {
-    // As in ticketEmail.ts: the SDK reports API errors through `error`, not
-    // by throwing, so this has to be checked or a rejected send is silent.
-    const { error } = await resend.emails.send({
-      from: MEMBERSHIP_FROM,
-      to,
-      subject: `Manual GroupMe invite needed: ${name || metadata.psuEmail}`,
-      text: [
-        `A new SASA member paid but could not be auto-added to the GroupMe.`,
-        ``,
-        `Reason: ${reason}`,
-        ``,
-        `Name: ${name}`,
-        `PSU Email: ${metadata.psuEmail}`,
-        `Phone: ${metadata.phone}`,
-        `Stripe Payment Intent: ${paymentIntentId}`,
-        ``,
-        `They are recorded in Airtable. Please invite them manually from the GroupMe app.`,
-      ].join("\n"),
-    });
-
-    if (error) {
-      console.error(
-        `Admin GroupMe failure email NOT sent to ${to} — ${error.name}: ${error.message}`
-      );
-    }
-  } catch (err) {
-    console.error("Failed to send admin failure email:", err);
-  }
+  await sendAdminAlert(
+    `Manual GroupMe invite needed: ${name || metadata.psuEmail}`,
+    [
+      `A new SASA member paid but could not be auto-added to the GroupMe.`,
+      ``,
+      `Reason: ${reason}`,
+      ``,
+      `Name: ${name}`,
+      `PSU Email: ${metadata.psuEmail}`,
+      `Phone: ${metadata.phone}`,
+      `Stripe Payment Intent: ${paymentIntentId}`,
+      ``,
+      `They are recorded in Airtable. Please invite them manually from the GroupMe app.`,
+    ]
+  );
 }
 
 export async function addMemberToGroupMe(

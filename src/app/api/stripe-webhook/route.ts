@@ -3,11 +3,45 @@ import { NextRequest, NextResponse } from "next/server";
 import { appendMemberToAirtable, appendTicketToAirtable } from "@/lib/airtable";
 import { addMemberToGroupMe } from "@/lib/groupme";
 import { sendTicketConfirmationEmail } from "@/lib/ticketEmail";
+import { formatPrice, sendAdminAlert } from "@/lib/adminAlert";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
+
+// A payment we can't attribute is money the board has to reconcile by hand,
+// so it gets surfaced rather than dropped — but nothing is written to
+// Airtable off a guess about what it was for.
+async function alertUntaggedPayment(paymentIntent: Stripe.PaymentIntent) {
+  const amount = formatPrice(paymentIntent.amount);
+
+  console.warn(
+    `Untagged payment_intent.succeeded (${paymentIntent.id}, ${amount}) — ` +
+      `no purchaseType metadata, nothing recorded.`
+  );
+
+  await sendAdminAlert(`Payment received outside the site: ${amount}`, [
+    `A payment succeeded that the website didn't create — it carries no`,
+    `purchaseType metadata, so it isn't a membership signup or a ticket`,
+    `order from psusasa.com. Most likely a card taken at the door with Tap`,
+    `to Pay, or a charge made from the Stripe dashboard.`,
+    ``,
+    `Amount: ${amount}`,
+    `Paid at: ${new Date(paymentIntent.created * 1000).toLocaleString("en-US", {
+      timeZone: "America/New_York",
+      dateStyle: "medium",
+      timeStyle: "short",
+    })} (ET)`,
+    `Description: ${paymentIntent.description || "(none)"}`,
+    `Receipt email: ${paymentIntent.receipt_email || "(none)"}`,
+    `Stripe Payment Intent: ${paymentIntent.id}`,
+    `https://dashboard.stripe.com/payments/${paymentIntent.id}`,
+    ``,
+    `Nothing was written to Airtable and no one was added to the GroupMe.`,
+    `If this was a membership or a ticket, please add them by hand.`,
+  ]);
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -41,7 +75,7 @@ export async function POST(req: NextRequest) {
       const paymentIntent = event.data.object as Stripe.PaymentIntent;
       const metadata = paymentIntent.metadata;
 
-      if (metadata?.purchaseType === "ticket") {
+      if (metadata.purchaseType === "ticket") {
         const eventName = metadata.eventName ?? "";
         const ticketTypeName = metadata.ticketTypeName ?? "";
         const quantity = Number(metadata.quantity) || 1;
@@ -80,7 +114,7 @@ export async function POST(req: NextRequest) {
             amountPaidCents: paymentIntent.amount,
           });
         }
-      } else if (metadata) {
+      } else if (metadata.purchaseType === "membership") {
         await appendMemberToAirtable(metadata, paymentIntent.id);
         // GroupMe failure must not block the 200 response — it self-handles
         // errors by emailing the admin.
@@ -89,6 +123,17 @@ export async function POST(req: NextRequest) {
         } catch (err) {
           console.error("GroupMe add threw unexpectedly:", err);
         }
+      } else {
+        // Both branches above match their tag positively, and anything
+        // untagged lands here. This was once `else if (metadata)` — a
+        // catch-all, since before ticketing existed every payment in the
+        // account really was a membership. Stripe always sends `metadata`
+        // as an object ({} when empty, never null), so that condition was
+        // unconditional: card charges taken outside the site (Tap to Pay,
+        // a dashboard charge) were filed as membership signups, writing a
+        // blank Members row and firing a GroupMe add with no one to add.
+        // Don't reintroduce a fall-through branch here.
+        await alertUntaggedPayment(paymentIntent);
       }
     }
 

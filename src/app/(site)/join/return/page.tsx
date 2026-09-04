@@ -175,7 +175,11 @@ export default async function JoinReturnPage({
     paymentIntent?.amount ?? formCopy?.priceCents ?? FALLBACK_PRICE_CENTS;
   const priceDisplay = formatPrice(priceCents);
 
-  if (isComplete && paymentIntent?.metadata) {
+  // Requires the membership tag, not just any succeeded payment: the id
+  // comes from the query string, so an unguarded write would file whatever
+  // payment was named here as a member — a ticket buyer's payment intent id
+  // pasted into this URL would grant them membership (and member pricing).
+  if (isComplete && paymentIntent?.metadata.purchaseType === "membership") {
     try {
       await appendMemberToAirtable(paymentIntent.metadata, paymentIntent.id);
     } catch (err) {
